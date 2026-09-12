@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+find some libaries of js that generate nice tree structions then placen them radnom inside the landscape and aslo converted based on mode ""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -48,6 +48,7 @@
     }
     #music-btn:hover { background: #3a3a4a; }
     #music-btn.on { background: #2a4a2a; color: #cfc; border-color: #4a4; }
+    #music-vol-row { margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -63,19 +64,25 @@
 <!-- ---------- Terrain parameter controls (synced to peers) ---------- -->
 <div id="params">
   <h3>World Parameters</h3>
-  <label>Amplitude (u_k) <span class="val" id="u_k_val">10.0</span>
+  <label>Amplitude (u_k) <span class="val" id="u_k_val">60.0</span>
     <input type="range" id="u_k" min="0" max="1000" step="0.1" value="10">
   </label>
-  <label>Frequency (u_p) <span class="val" id="u_p_val">10.0</span>
+  <label>Frequency (u_p) <span class="val" id="u_p_val">110.0</span>
     <input type="range" id="u_p" min="0.1" max="1000" step="0.1" value="10">
   </label>
-  <label>Scale (u_m) <span class="val" id="u_m_val">10</span>
+  <label>Scale (u_m) <span class="val" id="u_m_val">210</span>
     <input type="range" id="u_m" min="1" max="5000" step="1" value="10">
   </label>
   <label>Seed (u_S_seed) <span class="val" id="u_S_seed_val">1.36</span>
     <input type="range" id="u_S_seed" min="0" max="10" step="0.01" value="1.36">
   </label>
   <span id="sync-note">↻ changes broadcast to peers</span>
+
+  <div id="music-vol-row">
+    <label>🎵 Music Volume <span class="val" id="music_vol_val">50%</span>
+      <input type="range" id="music_vol" min="0" max="100" step="1" value="25">
+    </label>
+  </div>
   <button id="music-btn">🔊 Ambient Music: OFF</button>
 </div>
 
@@ -207,7 +214,9 @@ function handleKeyInput() {
 }
 
 function applyGravity(dt) {
-  const floorY = terrainHeightAt(targetPosition[0], targetPosition[2]) + EYE_HEIGHT;
+  // Use the cached heightmap — terrainHeightAt() does a synchronous
+  // readPixels and would stall the pipeline every single frame.
+  const floorY = cachedHeightAt(targetPosition[0], targetPosition[2]) + EYE_HEIGHT;
 
   if (flightMode) {
     if (targetPosition[1] < floorY) targetPosition[1] = floorY;
@@ -334,21 +343,49 @@ uniform mat4 u_modelViewMatrix, u_projectionMatrix;
 uniform float u_k, u_p, u_m, u_S_seed;
 uniform vec2  u_cameraPos;
 uniform float u_chunkSize, u_gridSize;
+uniform float u_baseCell;
+uniform int   u_level;
 out highp vec2 v_uv;
 out highp vec3 v_worldPos, v_normal;
 ${terrainGLSL}
 const int VERTS_PER_COLUMN = 30;
+const int CLIP_N = 128;
+
 void main() {
+    // ------------------------------------------------------------
+    //  MINECRAFT BLOCKS  (u_mode > 1.5)
+    //  Uses the SAME LOD clipmap scheme as SMOOTH/VOXEL: each level
+    //  doubles the effective block size, so the world reaches the
+    //  same render distance (~4096 units) with a bounded triangle
+    //  budget. Level 0 keeps the true u_blockSize.
+    // ------------------------------------------------------------
     if (u_mode > 1.5) {
         int gridSize = int(u_gridSize);
         int columnID = gl_VertexID / VERTS_PER_COLUMN;
         int localID  = gl_VertexID % VERTS_PER_COLUMN;
         int cx = columnID / gridSize;
         int cz = columnID % gridSize;
-        float B = u_blockSize;
+
+        // Per-level block size (LOD).
+        float B = u_blockSize * exp2(float(u_level));
         float H = 0.5 * B;
+
         vec2 camBlock = u_cameraPos / B;
         vec2 origin = floor(camBlock) - vec2(float(gridSize) * 0.5);
+
+        // Punch a hole for the finer level underneath.
+        if (u_level > 0) {
+            int hc = gridSize / 2;
+            int hr = gridSize / 4 - 1;
+            if (cx >= hc - hr && cx < hc + hr && cz >= hc - hr && cz < hc + hr) {
+                gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+                v_uv = vec2(0.0);
+                v_worldPos = vec3(0.0);
+                v_normal = vec3(0.0, 1.0, 0.0);
+                return;
+            }
+        }
+
         vec2 bp = origin + vec2(float(cx), float(cz));
         vec2 c  = (bp + 0.5) * B;
         float hSelf = block_height(c, u_k, u_p, u_m, u_S_seed);
@@ -396,30 +433,52 @@ void main() {
         gl_Position = u_projectionMatrix * u_modelViewMatrix * vec4(pos, 1.0);
         return;
     }
+
+    // ---------- SMOOTH / VOXEL : camera-centred geometry clipmap ----------
     int quadID = gl_VertexID / 6;
-    int x_cell = quadID / 2000;
-    int z_cell = quadID % 2000;
-    int vid = gl_VertexID % 6;
-    vec2 offset;
-    if (vid == 0) offset = vec2(0,0);
-    else if (vid == 1) offset = vec2(1,0);
-    else if (vid == 2) offset = vec2(1,1);
-    else if (vid == 3) offset = vec2(0,0);
-    else if (vid == 4) offset = vec2(1,1);
-    else offset = vec2(0,1);
-    vec2 gridPos = vec2(float(x_cell), float(z_cell)) + offset;
-    vec2 chunkIndex = floor(u_cameraPos / u_chunkSize);
-    vec2 fractional = fract(u_cameraPos / u_chunkSize);
-    vec2 offsetPos = (fractional - 0.5) * u_chunkSize;
-    vec2 chunkOffset = chunkIndex * u_chunkSize;
-    vec2 worldPos = gridPos + offsetPos + chunkOffset;
+    int vid    = gl_VertexID % 6;
+    int ix = quadID % CLIP_N;
+    int iz = quadID / CLIP_N;
+
+    float cell  = u_baseCell * exp2(float(u_level));
+    float halfN = float(CLIP_N) * 0.5;
+
+    // Snap the grid centre to this level's cell size so the mesh never
+    // swims through world space (this is what made the texture "lag").
+    vec2 center = floor(u_cameraPos / cell) * cell;
+    vec2 origin = center - vec2(halfN) * cell;
+
+    // Punch a hole for the finer level underneath (2-cell overlap so
+    // there are no cracks even when the two grids are snapped apart).
+    if (u_level > 0) {
+        int hc = CLIP_N / 2;
+        int hr = CLIP_N / 4 - 2;
+        if (ix >= hc - hr && ix < hc + hr && iz >= hc - hr && iz < hc + hr) {
+            gl_Position = vec4(2.0, 2.0, 2.0, 1.0);   // fully clipped
+            v_uv = vec2(0.0);
+            v_worldPos = vec3(0.0);
+            v_normal = vec3(0.0, 1.0, 0.0);
+            return;
+        }
+    }
+
+    vec2 o;
+    if      (vid == 0) o = vec2(0.0, 0.0);
+    else if (vid == 1) o = vec2(1.0, 0.0);
+    else if (vid == 2) o = vec2(1.0, 1.0);
+    else if (vid == 3) o = vec2(0.0, 0.0);
+    else if (vid == 4) o = vec2(1.0, 1.0);
+    else               o = vec2(0.0, 1.0);
+
+    vec2 worldPos = origin + (vec2(float(ix), float(iz)) + o) * cell;
     float height = terrain_height(worldPos, u_k, u_p, u_m, u_S_seed);
     vec3 pos = vec3(worldPos.x, height, worldPos.y);
-    float eps = max(0.5, u_blockSize * 0.5);
-    float hL = terrain_height(worldPos - vec2(eps,0), u_k, u_p, u_m, u_S_seed);
-    float hR = terrain_height(worldPos + vec2(eps,0), u_k, u_p, u_m, u_S_seed);
-    float hD = terrain_height(worldPos - vec2(0,eps), u_k, u_p, u_m, u_S_seed);
-    float hU = terrain_height(worldPos + vec2(0,eps), u_k, u_p, u_m, u_S_seed);
+
+    float eps = max(cell, 0.5);
+    float hL = terrain_height(worldPos - vec2(eps, 0.0), u_k, u_p, u_m, u_S_seed);
+    float hR = terrain_height(worldPos + vec2(eps, 0.0), u_k, u_p, u_m, u_S_seed);
+    float hD = terrain_height(worldPos - vec2(0.0, eps), u_k, u_p, u_m, u_S_seed);
+    float hU = terrain_height(worldPos + vec2(0.0, eps), u_k, u_p, u_m, u_S_seed);
     v_normal = normalize(vec3(hL - hR, 2.0 * eps, hD - hU));
     v_uv = worldPos / 1.1;
     v_worldPos = pos;
@@ -529,6 +588,37 @@ const uCameraPosition = gl.getUniformLocation(program, 'u_cameraPosition');
 const uFogColor       = gl.getUniformLocation(program, 'u_fogColor');
 const uFogDensity     = gl.getUniformLocation(program, 'u_fogDensity');
 const uSunDir         = gl.getUniformLocation(program, 'u_sunDir');
+const uBaseCell       = gl.getUniformLocation(program, 'u_baseCell');
+const uLevel          = gl.getUniformLocation(program, 'u_level');
+
+// ---- Geometry clipmap configuration ----
+const CLIP_N = 128;                       // quads per side, per level
+
+function clipBaseCell() {
+  // VOXEL mode snaps heights to the block grid, so match the cell size.
+  if (modeIndex === 1) return Math.max(1.0, blockSize);
+  return 1.0;
+}
+function clipLevelCount(base) {
+  // Grow levels (each 2× coarser) until the coarsest reaches ~4096 units.
+  const TARGET = 4096.0;
+  let levels = 1;
+  while (levels < 9 && (CLIP_N * 0.5) * base * Math.pow(2, levels - 1) < TARGET) levels++;
+  return Math.max(2, levels);
+}
+
+// ---- Minecraft-mode clipmap ----
+// Fixed column count per level; per-level "block" size doubles each level
+// so the world reaches the same ~4096 units as SMOOTH/VOXEL.
+const MC_GRID = 128;
+function blockGridSize() { return MC_GRID; }
+function blockLevelCount() {
+  const TARGET = 4096.0;
+  const radius0 = (MC_GRID * 0.5) * blockSize;   // world radius at level 0
+  let levels = 1;
+  while (levels < 9 && radius0 * Math.pow(2, levels - 1) < TARGET) levels++;
+  return Math.max(2, levels);
+}
 
 const FOG_DENSITY = 0.0012;
 gl.uniform1f(uFogDensity, FOG_DENSITY);
@@ -626,10 +716,6 @@ function uploadTerrainState(prog, gridSize) {
   gl.uniform1f(loc.mode, modeIndex);
   if (loc.grid && gridSize !== undefined) gl.uniform1f(loc.grid, gridSize);
 }
-function blockGridSize() {
-  const desired = Math.round(1024.0 / blockSize);
-  return Math.max(64, Math.min(256, desired));
-}
 
 function terrainHeightAt(x, z) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, probeFBO);
@@ -651,7 +737,16 @@ function terrainHeightAt(x, z) {
   return probePixel[0];
 }
 
-function updateHeightmap() {
+// ---- Heightmap refresh is throttled: this used to stall the GPU
+//      every single frame with a 256×256 readPixels. ----
+let lastHeightmapTime = -1e9;
+const HMAP_INTERVAL_MS = 100;   // 10 Hz instead of 60 Hz
+
+function updateHeightmap(force) {
+  const nowMs = performance.now();
+  if (!force && nowMs - lastHeightmapTime < HMAP_INTERVAL_MS) return;
+  lastHeightmapTime = nowMs;
+
   hmapOriginX = targetPosition[0] - HMAP_WORLD * 0.5;
   hmapOriginZ = targetPosition[2] - HMAP_WORLD * 0.5;
   gl.bindFramebuffer(gl.FRAMEBUFFER, probeFBO);
@@ -1098,7 +1193,12 @@ function makeFallbackTex() {
 }
 
 let started = false;
-function startOnce() { if (!started) { started = true; requestAnimationFrame(animate); } }
+function startOnce() {
+  if (started) return;
+  started = true;
+  updateHeightmap(true);          // prime the cache before the first frame
+  requestAnimationFrame(animate);
+}
 
 const image = new Image();
 image.crossOrigin = "anonymous";
@@ -1117,6 +1217,8 @@ image.onerror = () => {
   gl.disable(gl.BLEND);
   startOnce();
 };
+// Failsafe in case the network request neither resolves nor errors.
+setTimeout(startOnce, 4000);
 
 gl.useProgram(program);
 gl.activeTexture(gl.TEXTURE0);
@@ -1183,7 +1285,6 @@ function animate() {
   cameraPos[0] = position[0];
   cameraPos[1] = position[2];
 
-  const gridSize = blockGridSize();
   position = vec3.lerp([], position, targetPosition, 0.1);
   mat4.lookAt(
     modelViewMatrix,
@@ -1200,7 +1301,7 @@ function animate() {
   gl.useProgram(program);
   gl.bindVertexArray(null);
   uploadEdits(program);
-  uploadTerrainState(program, gridSize);
+  uploadTerrainState(program, blockGridSize());
 
   gl.uniformMatrix4fv(uProjectionMatrix, false, projectionMatrix);
   gl.uniformMatrix4fv(uModelViewMatrix, false, modelViewMatrix);
@@ -1209,10 +1310,25 @@ function animate() {
   gl.uniform3f(uFogColor, currentSky[0], currentSky[1], currentSky[2]);
 
   if (modeIndex === 2) {
-    const columns = gridSize * gridSize;
-    gl.drawArrays(gl.TRIANGLES, 0, columns * 30);
+    // Minecraft mode: draw a per-level LOD clipmap so it reaches the
+    // same render distance as SMOOTH / VOXEL. Level 0 = true block
+    // size, each subsequent level doubles it.
+    const gridSize = blockGridSize();
+    const levels   = blockLevelCount();
+    const vertsPerLevel = gridSize * gridSize * 30;
+    gl.uniform1f(uGridSize, gridSize);
+    for (let L = 0; L < levels; L++) {
+      gl.uniform1i(uLevel, L);
+      gl.drawArrays(gl.TRIANGLES, 0, vertsPerLevel);
+    }
   } else {
-    gl.drawArrays(gl.TRIANGLES, 0, 10000000);
+    const base   = clipBaseCell();
+    const levels = clipLevelCount(base);
+    gl.uniform1f(uBaseCell, base);
+    for (let L = 0; L < levels; L++) {
+      gl.uniform1i(uLevel, L);
+      gl.drawArrays(gl.TRIANGLES, 0, CLIP_N * CLIP_N * 6);
+    }
   }
 
   drawMobs();
@@ -1235,7 +1351,6 @@ function animate() {
 
   requestAnimationFrame(animate);
 }
-requestAnimationFrame(animate);
 
 // ============================================================
 //  EXPOSE GLOBALS FOR NETWORKING SCRIPT
@@ -1779,10 +1894,10 @@ syncTerrainSliders();
 //   • Convolution reverb with a procedurally generated impulse
 //     response for a soft, cavernous space.
 //   • Random pentatonic bells played through the same reverb,
-//     spaced 2–6 s apart, with long attack/release envelopes.
-//
-//  Everything is generated at runtime — no external files needed,
-//  and the whole thing is free / open source under your own project.
+//     with very irregular spacing / registers / envelopes, and
+//     occasional quick overlapping "clusters".
+//   • Global music-volume slider drives the master gain; the
+//     button toggles the whole bed on / off.
 // ============================================================
 const music = {
   ctx: null,
@@ -1790,12 +1905,14 @@ const music = {
   reverb: null,
   drones: [],
   running: false,
-  noteTimer: null
+  noteTimer: null,
+  volume: 0.5                    // 0..1, matches the slider (50 = default)
 };
 
-// A minor pentatonic-ish note pool (in Hz).
+// A minor pentatonic-ish note pool (Hz), extended a little for variety.
 const NOTE_POOL = [
-  220.00, 246.94, 261.63, 293.66, 329.63, 392.00, 440.00, 523.25
+  174.61, 196.00, 220.00, 246.94, 261.63, 293.66,
+  329.63, 392.00, 440.00, 523.25, 587.33, 659.25
 ];
 
 function makeImpulseResponse(ctx, seconds, decay) {
@@ -1819,7 +1936,7 @@ function initAudio() {
   music.ctx = new Ctx();
 
   music.master = music.ctx.createGain();
-  music.master.gain.value = 0.0;      // start silent, fade in
+  music.master.gain.value = 0.0;      // start silent, fade in on start
   music.master.connect(music.ctx.destination);
 
   // Reverb — used as a parallel wet bus
@@ -1843,13 +1960,13 @@ function startDrones() {
     osc.frequency.value = freq;
 
     const gain = ctx.createGain();
-    gain.gain.value = 0.055;
+    gain.gain.value = 0.075;         // slightly louder than before
 
     // Slow amplitude LFO → "breathing" texture
     const ampLfo = ctx.createOscillator();
     ampLfo.frequency.value = 0.06 + Math.random() * 0.08;
     const ampLfoGain = ctx.createGain();
-    ampLfoGain.gain.value = 0.035;
+    ampLfoGain.gain.value = 0.045;
     ampLfo.connect(ampLfoGain);
     ampLfoGain.connect(gain.gain);
 
@@ -1872,12 +1989,27 @@ function startDrones() {
   }
 }
 
+// Randomised scheduler: quick clusters, normal spacing, or long gaps.
 function scheduleNextNote() {
   if (!music.running) return;
-  const delaySec = 2.5 + Math.random() * 4.0;
+  const r = Math.random();
+  let delaySec;
+  if (r < 0.20) {
+    delaySec = 0.9 + Math.random() * 1.4;      // quick cluster
+  } else if (r < 0.70) {
+    delaySec = 2.5 + Math.random() * 3.5;      // normal
+  } else {
+    delaySec = 6.0 + Math.random() * 6.0;      // long ambient gap
+  }
+
   music.noteTimer = setTimeout(() => {
     if (!music.running) return;
     playBell();
+    // Sometimes play an immediate harmony / echo right after.
+    if (Math.random() < 0.30) {
+      setTimeout(() => { if (music.running) playBell(); },
+                 100 + Math.random() * 320);
+    }
     scheduleNextNote();
   }, delaySec * 1000);
 }
@@ -1885,31 +2017,53 @@ function scheduleNextNote() {
 function playBell() {
   const ctx = music.ctx;
   const baseFreq = NOTE_POOL[Math.floor(Math.random() * NOTE_POOL.length)];
-  const octave = Math.random() < 0.4 ? 2 : 1;
-  const freq = baseFreq * octave;
+
+  // Random register: 20% sub-octave, 55% middle, 25% upper octave.
+  const roll = Math.random();
+  const octave = roll < 0.20 ? 0.5 : (roll < 0.75 ? 1.0 : 2.0);
+  const freq   = baseFreq * octave;
+  const detune = (Math.random() - 0.5) * 22;   // ±11 cents organic drift
 
   const osc = ctx.createOscillator();
-  osc.type = Math.random() < 0.6 ? 'sine' : 'triangle';
-  osc.frequency.value = freq;
+  const osc2 = ctx.createOscillator();          // soft harmonic partial
 
-  const gain = ctx.createGain();
+  const t1 = Math.random();
+  osc.type  = t1 < 0.55 ? 'sine' : (t1 < 0.85 ? 'triangle' : 'sine');
+  osc.frequency.value = freq;
+  osc.detune.value = detune;
+
+  osc2.type = 'sine';
+  osc2.frequency.value = freq * (Math.random() < 0.6 ? 2 : 3);
+  osc2.detune.value = detune * 1.7;
+
+  const gain  = ctx.createGain();
+  const gain2 = ctx.createGain();
+
   const now = ctx.currentTime;
-  const attack  = 1.5 + Math.random() * 1.5;
-  const hold    = 2.0 + Math.random() * 2.0;
-  const release = 3.5 + Math.random() * 2.5;
-  const peak    = 0.07 + Math.random() * 0.04;
+  const attack  = 0.7 + Math.random() * 2.4;
+  const hold    = 1.4 + Math.random() * 3.0;
+  const release = 3.0 + Math.random() * 4.5;
+  const peak    = 0.20 + Math.random() * 0.16;   // louder than before
 
   gain.gain.setValueAtTime(0, now);
   gain.gain.linearRampToValueAtTime(peak, now + attack);
-  gain.gain.linearRampToValueAtTime(peak * 0.85, now + attack + hold);
+  gain.gain.linearRampToValueAtTime(peak * 0.8, now + attack + hold);
   gain.gain.linearRampToValueAtTime(0, now + attack + hold + release);
 
+  gain2.gain.setValueAtTime(0, now);
+  gain2.gain.linearRampToValueAtTime(peak * 0.28, now + attack * 0.7);
+  gain2.gain.linearRampToValueAtTime(0, now + attack + hold + release * 0.85);
+
   osc.connect(gain);
+  osc2.connect(gain2);
   gain.connect(music.master);
   gain.connect(music.reverb);
+  gain2.connect(music.master);
+  gain2.connect(music.reverb);
 
-  osc.start(now);
-  osc.stop(now + attack + hold + release + 0.1);
+  const tEnd = now + attack + hold + release + 0.15;
+  osc.start(now);  osc.stop(tEnd);
+  osc2.start(now); osc2.stop(tEnd);
 }
 
 function startAmbientMusic() {
@@ -1921,11 +2075,12 @@ function startAmbientMusic() {
   startDrones();
   scheduleNextNote();
 
-  // Gentle fade-in
+  // Gentle fade-in to the current slider volume.
   const t = music.ctx.currentTime;
+  const target = music.volume > 0.001 ? music.volume : 0.0;
   music.master.gain.cancelScheduledValues(t);
   music.master.gain.setValueAtTime(music.master.gain.value, t);
-  music.master.gain.linearRampToValueAtTime(0.22, t + 3.0);
+  music.master.gain.linearRampToValueAtTime(target, t + 2.5);
 }
 
 function stopAmbientMusic() {
@@ -1950,6 +2105,27 @@ function stopAmbientMusic() {
   }
 }
 
+// ---- Volume slider ----
+const musicVolSlider = document.getElementById('music_vol');
+const musicVolLabel  = document.getElementById('music_vol_val');
+
+function applyMusicVolume() {
+  const v = parseFloat(musicVolSlider.value) / 100;
+  music.volume = v;
+  musicVolLabel.textContent = Math.round(v * 100) + '%';
+
+  if (music.master && music.ctx && music.running) {
+    const t = music.ctx.currentTime;
+    music.master.gain.cancelScheduledValues(t);
+    music.master.gain.setValueAtTime(music.master.gain.value, t);
+    music.master.gain.linearRampToValueAtTime(v, t + 0.15);
+  }
+}
+music.volume = parseFloat(musicVolSlider.value) / 100;
+musicVolLabel.textContent = Math.round(music.volume * 100) + '%';
+musicVolSlider.addEventListener('input', applyMusicVolume);
+
+// ---- Music button ----
 const musicBtn = document.getElementById('music-btn');
 function updateMusicBtn() {
   if (music.running) {
@@ -1982,8 +2158,8 @@ function armMusicAutostart() {
     updateMusicBtn();
   } catch (e) {}
 }
-canvas.addEventListener('click', armMusicAutostart, { once: true });
+canvas.addEventListener('click', armMusicAutostart, { oance: true });
 canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
 </script>
 </body>
-</html>
+</html> also provde grass all over and provode code all in one
