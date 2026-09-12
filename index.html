@@ -8,8 +8,21 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>WebGL2 Terrain — Biomes, Mobs, Flight, Multiplayer + Music</title>
   <style>
-    html, body { margin: 0; overflow: hidden; background: #000; height: 100%; }
-    canvas { display: block; }
+    html, body {
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+      height: 100%;
+      height: 100dvh;                 /* fills the visible viewport on iOS */
+      overscroll-behavior: none;      /* kill rubber-band scrolling */
+      -webkit-overflow-scrolling: touch;
+    }
+    body {
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+               env(safe-area-inset-bottom) env(safe-area-inset-left);
+      box-sizing: border-box;
+    }
+    canvas { display: block; width: 100vw; height: 100dvh; }
     #fps, #mode, #biome {
       position: fixed; left: 8px; color: #0f0;
       font: 14px monospace; z-index: 10;
@@ -197,11 +210,9 @@
         inset 0 1px 3px rgba(255, 255, 255, 0.28);
     }
 
-    /* Sizes */
     .tbtn.lg { width: 84px; height: 84px; border-radius: 50%; font-size: 30px; }
     .tbtn.sm { width: 58px; height: 58px; border-radius: 14px; font-size: 22px; }
 
-    /* Grid placement: [fly][sprint] / [down][jump] */
     #btn-fly    { grid-column: 1; grid-row: 1; }
     #btn-sprint { grid-column: 2; grid-row: 1; }
     #btn-down   { grid-column: 1; grid-row: 2; }
@@ -233,6 +244,54 @@
       border-color: rgba(180, 255, 220, 0.95);
     }
 
+    /* ---------- iOS "Add to Home Screen" hint ---------- */
+    #fs-hint {
+      position: fixed;
+      left: 50%; top: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 40;
+      max-width: min(92vw, 380px);
+      background: rgba(14, 22, 32, 0.96);
+      border: 1px solid rgba(140, 200, 255, 0.55);
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+      color: #e6f4ff;
+      font: 14px/1.5 system-ui, -apple-system, sans-serif;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      animation: fsHintIn 0.35s ease-out;
+    }
+    @keyframes fsHintIn {
+      from { opacity: 0; transform: translate(-50%, -46%) scale(0.94); }
+      to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    }
+    .fs-hint-inner {
+      display: flex; align-items: flex-start; gap: 12px;
+    }
+    .fs-hint-text { flex: 1; font-size: 13px; }
+    .fs-hint-text b { color: #bfe4ff; }
+    .fs-hint-share {
+      display: inline-block;
+      background: rgba(90, 170, 240, 0.22);
+      border: 1px solid rgba(140, 200, 255, 0.5);
+      border-radius: 6px;
+      padding: 1px 7px;
+      font-size: 12px;
+      color: #d9ecff;
+    }
+    .fs-hint-close {
+      background: transparent;
+      border: none;
+      color: #8fb8d8;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 4px;
+      margin-top: -2px;
+    }
+    .fs-hint-close:active { color: #fff; }
+
     /* Small screens / landscape phones */
     @media (max-width: 900px) {
       #params { width: 200px; top: 62px; font-size: 11px; }
@@ -240,7 +299,6 @@
       #fps, #mode, #biome, #net { font-size: 11px; }
     }
     @media (max-height: 480px) {
-      /* Extra compact layout for landscape phones */
       #joystick { width: 128px; height: 128px; }
       #stick    { width: 58px; height: 58px; margin: -29px 0 0 -29px; }
       #primary-grid {
@@ -333,9 +391,9 @@ let touchStartX = 0, touchStartY = 0;
 let modelViewMatrix = mat4.create();
 
 // ---- Touch / mobile input ----
-const joyVec = { x: 0, y: 0 };   // virtual joystick vector, -1..1 (y down = backward)
-let lookTouchId = null;          // identifier of the finger currently looking around
-let sprinting = false;           // toggled by the mobile sprint button
+const joyVec = { x: 0, y: 0 };
+let lookTouchId = null;
+let sprinting = false;
 
 // ---- Physics ----
 let velocityY = 13;
@@ -396,9 +454,6 @@ function updateFlyLabel() {
 
 // ------------------------------------------------------------
 //  TOUCH LOOK
-//  Any finger that lands on the canvas (i.e. NOT on the
-//  joystick / buttons, which are separate elements on top)
-//  becomes the "look" finger. Multi-touch safe.
 // ------------------------------------------------------------
 canvas.addEventListener('touchstart', e => {
   if (lookTouchId === null && e.changedTouches.length > 0) {
@@ -411,7 +466,7 @@ canvas.addEventListener('touchstart', e => {
 }, { passive: false });
 
 canvas.addEventListener('touchmove', e => {
-  const s = 0.005;                        // look sensitivity (rad / px)
+  const s = 0.005;
   for (let i = 0; i < e.changedTouches.length; i++) {
     const t = e.changedTouches[i];
     if (t.identifier !== lookTouchId) continue;
@@ -457,36 +512,31 @@ function handleKeyInput() {
   vec3.normalize(forward, forward);
   vec3.normalize(right, right);
 
-  // Sprint: mobile toggle (⚡) OR Shift on keyboard when not flying.
   const sprintMult = (sprinting || (keysPressed['Shift'] && !flightMode)) ? 2.4 : 1.0;
   const step = (flightMode ? 0.5 : 0.05) * sprintMult;
 
-  // ---- Merge keyboard + virtual joystick into one movement vector ----
   let moveF = 0, moveR = 0;
   if (keysPressed['w']) moveF += 1;
   if (keysPressed['s']) moveF -= 1;
   if (keysPressed['d']) moveR += 1;
   if (keysPressed['a']) moveR -= 1;
 
-  moveF += -joyVec.y;     // joystick pushed up (negative y) = walk forward
-  moveR +=  joyVec.x;     // joystick pushed right = strafe right
+  moveF += -joyVec.y;
+  moveR +=  joyVec.x;
 
   const mag = Math.hypot(moveF, moveR);
-  if (mag > 1) { moveF /= mag; moveR /= mag; }   // keep partial deflection analog
+  if (mag > 1) { moveF /= mag; moveR /= mag; }
 
   if (moveF !== 0) targetPosition = vec3.scaleAndAdd([], targetPosition, forward, moveF * step);
   if (moveR !== 0) targetPosition = vec3.scaleAndAdd([], targetPosition, right,   moveR * step);
 
   if (flightMode) {
     if (keysPressed[' ']) targetPosition[1] += step * 0.6;
-    // Shift now doubles as sprint on the ground; only descend in flight mode.
     if (keysPressed['Shift'] && !sprinting) targetPosition[1] -= step * 0.6;
   }
 }
 
 function applyGravity(dt) {
-  // Use the cached heightmap — terrainHeightAt() does a synchronous
-  // readPixels and would stall the pipeline every single frame.
   const floorY = cachedHeightAt(targetPosition[0], targetPosition[2]) + EYE_HEIGHT;
 
   if (flightMode) {
@@ -509,7 +559,6 @@ document.exitPointerLock =
   document.exitPointerLock || document.mozExitPointerLock || document.webkitExitPointerLock;
 
 canvas.addEventListener('click', () => {
-  // Pointer lock is meaningless on phones/tablets — skip it there.
   if (window.matchMedia('(pointer: coarse)').matches) return;
   canvas.requestPointerLock();
 });
@@ -629,9 +678,6 @@ const int VERTS_PER_COLUMN = 30;
 const int CLIP_N = 128;
 
 void main() {
-    // ------------------------------------------------------------
-    //  MINECRAFT BLOCKS  (u_mode > 1.5)
-    // ------------------------------------------------------------
     if (u_mode > 1.5) {
         int gridSize = int(u_gridSize);
         int columnID = gl_VertexID / VERTS_PER_COLUMN;
@@ -705,7 +751,6 @@ void main() {
         return;
     }
 
-    // ---------- SMOOTH / VOXEL : camera-centred geometry clipmap ----------
     int quadID = gl_VertexID / 6;
     int vid    = gl_VertexID % 6;
     int ix = quadID % CLIP_N;
@@ -858,7 +903,6 @@ const uSunDir         = gl.getUniformLocation(program, 'u_sunDir');
 const uBaseCell       = gl.getUniformLocation(program, 'u_baseCell');
 const uLevel          = gl.getUniformLocation(program, 'u_level');
 
-// ---- Geometry clipmap configuration ----
 const CLIP_N = 128;
 
 function clipBaseCell() {
@@ -1455,7 +1499,7 @@ let started = false;
 function startOnce() {
   if (started) return;
   started = true;
-  updateHeightmap(true);          // prime the cache before the first frame
+  updateHeightmap(true);
   requestAnimationFrame(animate);
 }
 
@@ -1483,9 +1527,6 @@ gl.activeTexture(gl.TEXTURE0);
 gl.bindTexture(gl.TEXTURE_2D, texture);
 gl.uniform1i(uTexture, 0);
 
-// ------------------------------------------------------------
-//  Terrain editing (shared by mouse + on-screen buttons)
-// ------------------------------------------------------------
 function applyTerrainEdit(dig) {
   const dist = 20.0;
   const x = position[0] + Math.sin(mouseX) * dist;
@@ -2399,20 +2440,47 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
     (navigator.maxTouchPoints > 0) ||
     window.matchMedia('(pointer: coarse)').matches;
 
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPad|iPhone|iPod/.test(ua) ||
+                (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isIPhone = /iPhone|iPod/.test(ua);
+  const isStandalone =
+    window.navigator.standalone === true ||
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: fullscreen)').matches;
+
   // ------------------------------------------------------------
-  //  VIEWPORT RESIZE  (defined first so fullscreen handlers can use it)
+  //  VIEWPORT RESIZE  — uses visualViewport when available so the
+  //  canvas fills the *visible* area even with Safari's toolbars.
   // ------------------------------------------------------------
+  function viewportSize() {
+    if (window.visualViewport) {
+      return {
+        w: Math.max(1, Math.round(window.visualViewport.width)),
+        h: Math.max(1, Math.round(window.visualViewport.height))
+      };
+    }
+    return {
+      w: Math.max(1, window.innerWidth),
+      h: Math.max(1, window.innerHeight)
+    };
+  }
+
   function resizeViewport() {
-    const w = Math.max(1, window.innerWidth);
-    const h = Math.max(1, window.innerHeight);
+    const { w, h } = viewportSize();
     if (canvas.width === w && canvas.height === h) return;
     canvas.width  = w;
     canvas.height = h;
     gl.viewport(0, 0, w, h);
     mat4.perspective(projectionMatrix, Math.PI / 4, w / h, 0.5, 250000);
   }
+
   window.addEventListener('resize', resizeViewport);
   window.addEventListener('orientationchange', () => setTimeout(resizeViewport, 350));
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', resizeViewport);
+    window.visualViewport.addEventListener('scroll', resizeViewport);
+  }
   resizeViewport();
 
   // ------------------------------------------------------------
@@ -2425,16 +2493,22 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
            document.msFullscreenElement || null;
   }
 
+  function fsSupported() {
+    const el = document.documentElement;
+    return !!(el.requestFullscreen || el.webkitRequestFullscreen ||
+              el.mozRequestFullScreen || el.msRequestFullscreen);
+  }
+
   function requestFs() {
     const el  = document.documentElement;
     const req = el.requestFullscreen || el.webkitRequestFullscreen ||
                 el.mozRequestFullScreen || el.msRequestFullscreen;
     if (!req) return Promise.reject(new Error('no-api'));
     let p;
-    try { p = req.call(el); } catch (e) { return Promise.reject(e); }
+    try { p = req.call(el, { navigationUI: 'hide' }); }
+    catch (e) { try { p = req.call(el); } catch (e2) { return Promise.reject(e2); } }
     if (p && typeof p.then === 'function') {
       return p.then(() => {
-        // Best-effort landscape lock (not supported on iOS Safari).
         try {
           if (screen.orientation && screen.orientation.lock) {
             screen.orientation.lock('landscape').catch(() => {});
@@ -2458,35 +2532,85 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
 
   function toggleFs() {
     if (fsElement()) exitFs();
-    else requestFs().catch(() => {});
+    else requestFs().catch(() => showIOSHint());
   }
 
-  // Auto-enter fullscreen on first user gesture, mobile only.
+  // ------------------------------------------------------------
+  //  iOS "Add to Home Screen" HINT BANNER
+  // ------------------------------------------------------------
+  const HINT_DISMISS_KEY = 'fsHintDismissed_v1';
+  let hintEl = null;
+
+  function showIOSHint(force) {
+    if (!isTouchDevice) return;
+    if (!isIPhone) return;
+    if (isStandalone) return;
+    if (fsElement()) return;
+    if (!force && sessionStorage.getItem(HINT_DISMISS_KEY) === '1') return;
+
+    if (hintEl) {
+      hintEl.style.display = 'block';
+      return;
+    }
+
+    hintEl = document.createElement('div');
+    hintEl.id = 'fs-hint';
+    hintEl.innerHTML =
+      '<div class="fs-hint-inner">' +
+        '<div class="fs-hint-text">' +
+          '📱 <b>For true fullscreen on iPhone:</b><br>' +
+          'Tap <span class="fs-hint-share">Share&nbsp;⬆️</span> → ' +
+          '<b>Add to Home Screen</b> → open the icon.' +
+        '</div>' +
+        '<button class="fs-hint-close" aria-label="Dismiss">✕</button>' +
+      '</div>';
+    document.body.appendChild(hintEl);
+
+    hintEl.querySelector('.fs-hint-close').addEventListener('click', () => {
+      hintEl.style.display = 'none';
+      sessionStorage.setItem(HINT_DISMISS_KEY, '1');
+    });
+
+    setTimeout(() => {
+      if (hintEl) hintEl.style.display = 'none';
+    }, 12000);
+  }
+
   if (isTouchDevice) {
+    let armed = true;
     const armFs = () => {
+      if (!armed) return;
+      armed = false;
       document.removeEventListener('pointerdown', armFs);
       document.removeEventListener('touchstart',  armFs);
       document.removeEventListener('click',       armFs);
-      if (!fsElement()) requestFs().catch(() => {});
+
+      if (isStandalone || fsElement()) return;
+
+      if (fsSupported()) {
+        requestFs().catch(() => {
+          setTimeout(() => showIOSHint(true), 500);
+        });
+      } else if (isIPhone) {
+        setTimeout(() => showIOSHint(true), 500);
+      }
     };
     document.addEventListener('pointerdown', armFs, { once: true, passive: true });
     document.addEventListener('touchstart',  armFs, { once: true, passive: true });
     document.addEventListener('click',       armFs, { once: true, passive: true });
   }
 
-  // Panel fullscreen button
   const fsBtn = document.getElementById('fs-btn');
 
-  // Floating mobile fullscreen FAB (shown when not in fullscreen on mobile)
   const fsFab = document.createElement('button');
   fsFab.id = 'fs-fab';
   fsFab.textContent = '⛶';
-  fsFab.title = 'Enter fullscreen';
+  fsFab.title = 'Toggle fullscreen';
   fsFab.addEventListener('click', toggleFs);
   document.body.appendChild(fsFab);
 
   function updateFsBtn() {
-    const on = !!fsElement();
+    const on = !!fsElement() || isStandalone;
     fsBtn.textContent = on ? '⛶ Fullscreen: ON' : '⛶ Fullscreen: OFF';
     fsBtn.classList.toggle('on', on);
     fsFab.style.display = (isTouchDevice && !on) ? 'flex' : 'none';
@@ -2507,7 +2631,7 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
   // ------------------------------------------------------------
   const joyBase = document.getElementById('joystick');
   const joyKnob = document.getElementById('stick');
-  const JOY_MAX = 50;               // px the knob can travel from centre
+  const JOY_MAX = 50;
   const JOY_DEADZONE = 0.14;
 
   let joyPointerId = null;
@@ -2563,10 +2687,11 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
   });
 
   // ------------------------------------------------------------
-  //  HOLD BUTTONS  (jump / ascend, descend) → write to keysPressed
+  //  HOLD BUTTONS
   // ------------------------------------------------------------
   function bindHold(id, keyName) {
     const el = document.getElementById(id);
+    if (!el) return;
     const down = e => {
       e.preventDefault();
       keysPressed[keyName] = true;
@@ -2614,7 +2739,7 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
   bindTap('btn-dig',   () => applyTerrainEdit(true));
 
   // ------------------------------------------------------------
-  //  FLY TOGGLE  (with visual "on" state)
+  //  FLY TOGGLE
   // ------------------------------------------------------------
   const flyBtn = document.getElementById('btn-fly');
   function updateFlyBtn() {
@@ -2630,7 +2755,7 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
   updateFlyBtn();
 
   // ------------------------------------------------------------
-  //  SPRINT TOGGLE  (with visual "on" state)
+  //  SPRINT TOGGLE
   // ------------------------------------------------------------
   const sprintBtn = document.getElementById('btn-sprint');
   function updateSprintBtn() {
@@ -2644,7 +2769,7 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
   updateSprintBtn();
 
   // ------------------------------------------------------------
-  //  TOUCH-CONTROLS TOGGLE  (auto-on for touch devices)
+  //  TOUCH-CONTROLS TOGGLE
   // ------------------------------------------------------------
   const controlsEl = document.getElementById('touch-controls');
   const touchBtn   = document.getElementById('touch-btn');
@@ -2671,7 +2796,7 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
   setTouchControls(isTouchDevice);
 
   // ------------------------------------------------------------
-  //  COLLAPSIBLE PARAMETER PANEL (starts collapsed on phones)
+  //  COLLAPSIBLE PARAMETER PANEL
   // ------------------------------------------------------------
   const panel = document.getElementById('params');
   panel.querySelector('h3').addEventListener('click', () => {
