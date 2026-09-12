@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>WebGL2 Terrain — Biomes, Mobs, Flight, Multiplayer</title>
+  <title>WebGL2 Terrain — Biomes, Mobs, Flight, Multiplayer + Music</title>
   <style>
     html, body { margin: 0; overflow: hidden; background: #000; }
     canvas { display: block; }
@@ -13,7 +13,7 @@
     #fps   { top: 8px; }
     #mode  { top: 26px; color: #0ff; }
     #biome { top: 44px; color: #ff0; }
-    #net   { top: 62px; color: #f80; }
+    #net   { top: 62px; color: #f80; position: fixed; left: 8px; font: 14px monospace; z-index: 10; }
     #help {
       position: fixed; left: 8px; bottom: 8px; color: #888;
       font: 12px monospace; z-index: 10;
@@ -26,6 +26,28 @@
       position: fixed; right: 8px; top: 8px; color: #0af;
       font: 12px monospace; z-index: 10; text-align: right;
     }
+    /* ---------- Terrain parameter panel ---------- */
+    #params {
+      position: fixed; top: 30px; right: 8px; z-index: 20;
+      background: rgba(20, 20, 20, 0.85); color: #eee;
+      font: 12px monospace; padding: 10px 12px;
+      border-radius: 8px; width: 240px; user-select: none;
+      border: 1px solid #333;
+    }
+    #params h3 { margin: 0 0 8px 0; font: 12px monospace; color: #8f8; }
+    #params label { display: block; margin-top: 8px; color: #ccc; }
+    #params input[type=range] { width: 100%; margin-top: 2px; }
+    #params .val { color: #ff0; float: right; }
+    #params #sync-note {
+      color: #6af; margin-top: 8px; font-size: 10px; display: block;
+    }
+    #music-btn {
+      margin-top: 10px; width: 100%; padding: 6px 8px;
+      background: #2a2a3a; color: #cdf; border: 1px solid #445;
+      border-radius: 4px; cursor: pointer; font: 12px monospace;
+    }
+    #music-btn:hover { background: #3a3a4a; }
+    #music-btn.on { background: #2a4a2a; color: #cfc; border-color: #4a4; }
   </style>
 </head>
 <body>
@@ -37,6 +59,26 @@
 <div id="fly"></div>
 <div id="status"></div>
 <div id="help">WASD · Space jump · F = fly · LMB raise · RMB dig · R reset · V mode · [ ] block size</div>
+
+<!-- ---------- Terrain parameter controls (synced to peers) ---------- -->
+<div id="params">
+  <h3>World Parameters</h3>
+  <label>Amplitude (u_k) <span class="val" id="u_k_val">10.0</span>
+    <input type="range" id="u_k" min="0" max="1000" step="0.1" value="10">
+  </label>
+  <label>Frequency (u_p) <span class="val" id="u_p_val">10.0</span>
+    <input type="range" id="u_p" min="0.1" max="1000" step="0.1" value="10">
+  </label>
+  <label>Scale (u_m) <span class="val" id="u_m_val">10</span>
+    <input type="range" id="u_m" min="1" max="5000" step="1" value="10">
+  </label>
+  <label>Seed (u_S_seed) <span class="val" id="u_S_seed_val">1.36</span>
+    <input type="range" id="u_S_seed" min="0" max="10" step="0.01" value="1.36">
+  </label>
+  <span id="sync-note">↻ changes broadcast to peers</span>
+  <button id="music-btn">🔊 Ambient Music: OFF</button>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
 <script>
 // ============================================================
@@ -909,7 +951,6 @@ function appendMob(out, k, m) {
   return k;
 }
 
-// Add a remote player (simple 2-box avatar)
 function appendRemotePlayer(out, k, rp) {
   const cos = Math.cos(rp.yaw || 0), sin = Math.sin(rp.yaw || 0);
   const c = rp.color || [0.8, 0.4, 0.9];
@@ -1044,7 +1085,6 @@ gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 if (anisoExt) gl.texParameterf(gl.TEXTURE_2D, anisoExt.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(16, maxAniso));
 
-// Fallback checker texture in case the remote image fails.
 function makeFallbackTex() {
   const c = document.createElement('canvas');
   c.width = c.height = 64;
@@ -1110,9 +1150,6 @@ updateFlyLabel();
 //  ANIMATION
 // ============================================================
 let frameCount = 0, startTime = performance.now(), lastTime = performance.now();
-
-// Flag the mob host uses to decide whether to run the simulation.
-// Populated by the networking script below.
 let isMobHost = true;
 
 function animate() {
@@ -1124,12 +1161,10 @@ function animate() {
   applyGravity(dt);
   updateHeightmap();
 
-  // Mob simulation only runs on the host.
   if (isMobHost) {
     updateMobs(dt);
     updateSpawning(dt);
   } else {
-    // Non-host: interpolate toward last received state.
     for (let i = 0; i < mobs.length; i++) {
       const m = mobs[i];
       m.x   += (m.targetX - m.x)   * 0.2;
@@ -1182,7 +1217,6 @@ function animate() {
 
   drawMobs();
 
-  // ---- network hooks ----
   if (typeof updateRemotePlayers === 'function') updateRemotePlayers();
   if (typeof sendPlayerState === 'function') sendPlayerState();
   if (typeof flushWorldBroadcast === 'function') flushWorldBroadcast();
@@ -1229,6 +1263,7 @@ window.__game = {
     }
     pushTerrainUniforms();
     updateModeLabel();
+    if (typeof syncTerrainSliders === 'function') syncTerrainSliders();
   }
 };
 </script>
@@ -1262,18 +1297,10 @@ const RTC_CONFIG = {
   ]
 };
 
-// ============================================================
-//  DETERMINISTIC INITIATOR
-//  The peer with the SMALLER id always initiates. This makes
-//  simultaneous connects converge instead of deadlocking.
-// ============================================================
 function shouldInitiate(peerID) {
   return ID < peerID;
 }
 
-// ============================================================
-//  HTTP SIGNALING
-// ============================================================
 async function sendSignal(type, peerID, data) {
   try {
     const r = await fetch(SERVER + "/signal", {
@@ -1299,12 +1326,9 @@ async function fetchPeerList() {
   } catch (e) { console.error("exchange_ip err", e); return []; }
 }
 
-// ============================================================
-//  CONNECT / REGISTER
-// ============================================================
 async function connectToPeer(peerID) {
   if (peerID === ID || peers[peerID]) return;
-  if (!shouldInitiate(peerID)) return;   // smaller id initiates
+  if (!shouldInitiate(peerID)) return;
 
   console.log("initiating to", peerID);
 
@@ -1334,14 +1358,11 @@ async function connectToPeer(peerID) {
 async function receiveOffer(msg) {
   const peerID = msg.from;
 
-  // Simultaneous-connect race: whoever has the smaller id wins.
   if (peers[peerID]) {
     if (shouldInitiate(peerID)) {
-      // We are the initiator — ignore their offer.
       console.log("ignoring offer (we initiate)", peerID);
       return;
     }
-    // We are not the initiator — accept theirs.
     console.log("replacing our connection with incoming offer", peerID);
     removePeer(peerID, /*keepChannel*/ false);
   }
@@ -1403,9 +1424,6 @@ async function flushPendingICE(peerID) {
   }
 }
 
-// ============================================================
-//  PEER LIFECYCLE
-// ============================================================
 function removePeer(peerID, keepChannel) {
   console.log("remove peer", peerID);
   stopPing(peerID);
@@ -1426,8 +1444,6 @@ function setupDataChannel(peerID, channel) {
     console.log("channel OPEN", peerID);
     statusElement.textContent = `peers: ${Object.keys(peers).length}`;
 
-    // If we're initiating, we are the mob authority for this connection —
-    // push the current world so the new peer sees the same terrain.
     if (peerIsInitiator[peerID]) {
       sendWorldStateTo(peerID);
     }
@@ -1439,12 +1455,6 @@ function setupDataChannel(peerID, channel) {
   channel.onmessage = ev => handleChannelMessage(peerID, ev.data);
 }
 
-// ============================================================
-//  MOB HOST DETERMINATION
-//  We are the mob host if none of our connected peers has a
-//  smaller id. The smallest id in the mesh simulates mobs and
-//  broadcasts state; everyone else renders.
-// ============================================================
 function reevaluateMobHost() {
   let host = true;
   for (const pid in peers) {
@@ -1454,7 +1464,6 @@ function reevaluateMobHost() {
     console.log("mob host:", host);
     isMobHost = host;
     if (host) {
-      // Clear stale non-host mobs so the local sim starts fresh.
       mobs.length = 0;
       spawnTimer = 0;
     }
@@ -1468,9 +1477,6 @@ function updateNetLabel() {
     `NET: ${peerCount} peer${peerCount === 1 ? '' : 's'}   host: ${isMobHost ? 'YES' : 'no'}   id: ${ID.substring(0, 4)}`;
 }
 
-// ============================================================
-//  PING
-// ============================================================
 function startPing(peerID) {
   stopPing(peerID);
   pingTimers[peerID] = setInterval(() => {
@@ -1484,9 +1490,6 @@ function stopPing(peerID) {
   if (pingTimers[peerID]) { clearInterval(pingTimers[peerID]); delete pingTimers[peerID]; }
 }
 
-// ============================================================
-//  WORLD STATE SYNC
-// ============================================================
 function sendWorldStateTo(peerID) {
   const ch = channels[peerID];
   if (!ch || ch.readyState !== "open") return;
@@ -1523,12 +1526,8 @@ function applyWorldState(packet) {
   window.__game.syncFromWorldState(packet);
 }
 
-// ============================================================
-//  MOB SYNC
-//  Host broadcasts every ~100ms. Non-host replaces/updates.
-// ============================================================
 let lastMobBroadcast = 0;
-const MOB_BROADCAST_INTERVAL = 100;   // ms
+const MOB_BROADCAST_INTERVAL = 100;
 
 function hostMobTick(now) {
   if (!isMobHost) return;
@@ -1566,10 +1565,8 @@ function applyMobSync(list) {
       next.push(m);
       incoming.delete(m.id);
     }
-    // Mobs not in the incoming list have despawned — drop them.
   }
 
-  // New mobs the host spawned
   for (const inc of incoming.values()) {
     const flying = !!inc.f;
     next.push({
@@ -1593,9 +1590,6 @@ function applyMobSync(list) {
   for (const m of next) mobs.push(m);
 }
 
-// ============================================================
-//  PLAYER STATE
-// ============================================================
 let lastPlayerSend = 0;
 function sendPlayerState() {
   const now = performance.now();
@@ -1660,9 +1654,6 @@ function colorForId(id) {
   return [f(0), f(8), f(4)];
 }
 
-// ============================================================
-//  MESSAGE DISPATCH
-// ============================================================
 function handleChannelMessage(peerID, raw) {
   let p; try { p = JSON.parse(raw); } catch (e) { return; }
   if (!p || typeof p !== "object") return;
@@ -1680,9 +1671,6 @@ function handleChannelMessage(peerID, raw) {
   if (p.type === "mobs")   { if (!isMobHost) applyMobSync(p.list); return; }
 }
 
-// ============================================================
-//  SIGNAL POLL + HEARTBEAT
-// ============================================================
 async function pollSignals() {
   try {
     const r = await fetch(SERVER + "/signal?client_id=" + encodeURIComponent(ID));
@@ -1701,25 +1689,18 @@ async function heartbeat() {
   try { await fetch(SERVER + "/heartbeat?client_id=" + encodeURIComponent(ID)); } catch (e) {}
 }
 
-// Periodically re-fetch peer list — this is what makes LATE JOINERS
-// get connected. Without it, two clients that started at different
-// times would never see each other.
 async function refreshPeers() {
   const ids = await fetchPeerList();
   for (const pid of ids) {
     if (peers[pid]) continue;
     if (shouldInitiate(pid)) await connectToPeer(pid);
-    // If not shouldInitiate, the other peer will reach out to us.
   }
 }
 
-// ============================================================
-//  START
-// ============================================================
 (async function start() {
-  await refreshPeers();                       // initial discovery
-  setInterval(pollSignals, 100);              // fast ICE/offer polling
-  setInterval(refreshPeers, 3000);            // catch late joiners
+  await refreshPeers();
+  setInterval(pollSignals, 100);
+  setInterval(refreshPeers, 3000);
   setInterval(heartbeat, 10000);
   updateNetLabel();
   console.log("NET running");
@@ -1729,6 +1710,280 @@ window.addEventListener("beforeunload", () => {
   for (const pid in peers) removePeer(pid);
   try { navigator.sendBeacon(SERVER + "/disconnect?client_id=" + encodeURIComponent(ID)); } catch (e) {}
 });
+</script>
+
+<!-- ============================================================
+     TERRAIN SLIDERS + AMBIENT MUSIC
+     ============================================================ -->
+<script>
+// ============================================================
+//  TERRAIN PARAMETER SLIDERS
+//  Every slider updates TERRAIN.k / p / m / seed, pushes the new
+//  values to BOTH shader programs, and schedules a world state
+//  broadcast so remote peers immediately see the same terrain.
+// ============================================================
+const sliders = {
+  u_k:      document.getElementById('u_k'),
+  u_p:      document.getElementById('u_p'),
+  u_m:      document.getElementById('u_m'),
+  u_S_seed: document.getElementById('u_S_seed')
+};
+const labels = {
+  u_k:      document.getElementById('u_k_val'),
+  u_p:      document.getElementById('u_p_val'),
+  u_m:      document.getElementById('u_m_val'),
+  u_S_seed: document.getElementById('u_S_seed_val')
+};
+
+// Keep UI in sync with the actual TERRAIN object (called on world sync).
+function syncTerrainSliders() {
+  sliders.u_k.value      = TERRAIN.k;
+  sliders.u_p.value      = TERRAIN.p;
+  sliders.u_m.value      = TERRAIN.m;
+  sliders.u_S_seed.value = TERRAIN.seed;
+  labels.u_k.textContent      = Number(TERRAIN.k).toFixed(1);
+  labels.u_p.textContent      = Number(TERRAIN.p).toFixed(1);
+  labels.u_m.textContent      = Number(TERRAIN.m).toFixed(0);
+  labels.u_S_seed.textContent = Number(TERRAIN.seed).toFixed(2);
+}
+// Expose so networking applyWorldState can call it.
+window.syncTerrainSliders = syncTerrainSliders;
+
+function onSliderInput() {
+  TERRAIN.k    = parseFloat(sliders.u_k.value);
+  TERRAIN.p    = parseFloat(sliders.u_p.value);
+  TERRAIN.m    = parseFloat(sliders.u_m.value);
+  TERRAIN.seed = parseFloat(sliders.u_S_seed.value);
+
+  labels.u_k.textContent      = TERRAIN.k.toFixed(1);
+  labels.u_p.textContent      = TERRAIN.p.toFixed(1);
+  labels.u_m.textContent      = TERRAIN.m.toFixed(0);
+  labels.u_S_seed.textContent = TERRAIN.seed.toFixed(2);
+
+  // Update BOTH programs — main render + height probe.
+  pushTerrainUniforms();
+
+  // Tell the network layer to broadcast the new world state.
+  if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast();
+}
+
+Object.values(sliders).forEach(el => el.addEventListener('input', onSliderInput));
+syncTerrainSliders();
+
+// ============================================================
+//  AMBIENT MUSIC (Web Audio API — fully procedural)
+//
+//  Design:
+//   • Three sine drones on an A minor chord with slow LFO gain
+//     and slight detune wander — creates a warm breathing pad.
+//   • Convolution reverb with a procedurally generated impulse
+//     response for a soft, cavernous space.
+//   • Random pentatonic bells played through the same reverb,
+//     spaced 2–6 s apart, with long attack/release envelopes.
+//
+//  Everything is generated at runtime — no external files needed,
+//  and the whole thing is free / open source under your own project.
+// ============================================================
+const music = {
+  ctx: null,
+  master: null,
+  reverb: null,
+  drones: [],
+  running: false,
+  noteTimer: null
+};
+
+// A minor pentatonic-ish note pool (in Hz).
+const NOTE_POOL = [
+  220.00, 246.94, 261.63, 293.66, 329.63, 392.00, 440.00, 523.25
+];
+
+function makeImpulseResponse(ctx, seconds, decay) {
+  const rate = ctx.sampleRate;
+  const len  = Math.floor(rate * seconds);
+  const buf  = ctx.createBuffer(2, len, rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) {
+      // Slight stereo decorrelation + exponential decay
+      const n = (Math.random() * 2 - 1);
+      data[i] = n * Math.pow(1 - i / len, decay);
+    }
+  }
+  return buf;
+}
+
+function initAudio() {
+  if (music.ctx) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  music.ctx = new Ctx();
+
+  music.master = music.ctx.createGain();
+  music.master.gain.value = 0.0;      // start silent, fade in
+  music.master.connect(music.ctx.destination);
+
+  // Reverb — used as a parallel wet bus
+  const convolver = music.ctx.createConvolver();
+  convolver.buffer = makeImpulseResponse(music.ctx, 5.0, 2.5);
+  const wet = music.ctx.createGain();
+  wet.gain.value = 0.55;
+  convolver.connect(wet);
+  wet.connect(music.master);
+  music.reverb = convolver;
+}
+
+function startDrones() {
+  const ctx = music.ctx;
+  // A2, E3, A3 — open fifth with octave, warm & neutral.
+  const baseFreqs = [110.0, 164.81, 220.0];
+
+  for (const freq of baseFreqs) {
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+
+    const gain = ctx.createGain();
+    gain.gain.value = 0.055;
+
+    // Slow amplitude LFO → "breathing" texture
+    const ampLfo = ctx.createOscillator();
+    ampLfo.frequency.value = 0.06 + Math.random() * 0.08;
+    const ampLfoGain = ctx.createGain();
+    ampLfoGain.gain.value = 0.035;
+    ampLfo.connect(ampLfoGain);
+    ampLfoGain.connect(gain.gain);
+
+    // Very slow detune wander → subtle chorus between drones
+    const detuneLfo = ctx.createOscillator();
+    detuneLfo.frequency.value = 0.09 + Math.random() * 0.05;
+    const detuneGain = ctx.createGain();
+    detuneGain.gain.value = 4;      // ±4 cents
+    detuneLfo.connect(detuneGain);
+    detuneGain.connect(osc.detune);
+
+    osc.connect(gain);
+    gain.connect(music.master);
+    gain.connect(music.reverb);
+
+    osc.start();
+    ampLfo.start();
+    detuneLfo.start();
+    music.drones.push(osc, ampLfo, detuneLfo);
+  }
+}
+
+function scheduleNextNote() {
+  if (!music.running) return;
+  const delaySec = 2.5 + Math.random() * 4.0;
+  music.noteTimer = setTimeout(() => {
+    if (!music.running) return;
+    playBell();
+    scheduleNextNote();
+  }, delaySec * 1000);
+}
+
+function playBell() {
+  const ctx = music.ctx;
+  const baseFreq = NOTE_POOL[Math.floor(Math.random() * NOTE_POOL.length)];
+  const octave = Math.random() < 0.4 ? 2 : 1;
+  const freq = baseFreq * octave;
+
+  const osc = ctx.createOscillator();
+  osc.type = Math.random() < 0.6 ? 'sine' : 'triangle';
+  osc.frequency.value = freq;
+
+  const gain = ctx.createGain();
+  const now = ctx.currentTime;
+  const attack  = 1.5 + Math.random() * 1.5;
+  const hold    = 2.0 + Math.random() * 2.0;
+  const release = 3.5 + Math.random() * 2.5;
+  const peak    = 0.07 + Math.random() * 0.04;
+
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(peak, now + attack);
+  gain.gain.linearRampToValueAtTime(peak * 0.85, now + attack + hold);
+  gain.gain.linearRampToValueAtTime(0, now + attack + hold + release);
+
+  osc.connect(gain);
+  gain.connect(music.master);
+  gain.connect(music.reverb);
+
+  osc.start(now);
+  osc.stop(now + attack + hold + release + 0.1);
+}
+
+function startAmbientMusic() {
+  initAudio();
+  if (music.ctx.state === 'suspended') music.ctx.resume();
+  if (music.running) return;
+
+  music.running = true;
+  startDrones();
+  scheduleNextNote();
+
+  // Gentle fade-in
+  const t = music.ctx.currentTime;
+  music.master.gain.cancelScheduledValues(t);
+  music.master.gain.setValueAtTime(music.master.gain.value, t);
+  music.master.gain.linearRampToValueAtTime(0.22, t + 3.0);
+}
+
+function stopAmbientMusic() {
+  if (!music.running) return;
+  music.running = false;
+
+  if (music.noteTimer) { clearTimeout(music.noteTimer); music.noteTimer = null; }
+
+  if (music.ctx) {
+    const t = music.ctx.currentTime;
+    music.master.gain.cancelScheduledValues(t);
+    music.master.gain.setValueAtTime(music.master.gain.value, t);
+    music.master.gain.linearRampToValueAtTime(0.0, t + 1.5);
+
+    // Kill the oscillators after the fade
+    setTimeout(() => {
+      for (const node of music.drones) {
+        try { node.stop(); } catch (e) {}
+      }
+      music.drones = [];
+    }, 1700);
+  }
+}
+
+const musicBtn = document.getElementById('music-btn');
+function updateMusicBtn() {
+  if (music.running) {
+    musicBtn.textContent = '🔊 Ambient Music: ON';
+    musicBtn.classList.add('on');
+  } else {
+    musicBtn.textContent = '🔊 Ambient Music: OFF';
+    musicBtn.classList.remove('on');
+  }
+}
+updateMusicBtn();
+
+musicBtn.addEventListener('click', () => {
+  if (music.running) { stopAmbientMusic(); }
+  else               { startAmbientMusic(); }
+  // Update label after the toggle.
+  setTimeout(updateMusicBtn, 50);
+  updateMusicBtn();
+});
+
+// Auto-start muted on first user gesture (browsers block autoplay
+// before an interaction). Clicking the canvas or the button works.
+let musicAutostartArmed = true;
+function armMusicAutostart() {
+  if (!musicAutostartArmed) return;
+  musicAutostartArmed = false;
+  // Try to start; if the context is blocked we just leave it off.
+  try {
+    startAmbientMusic();
+    updateMusicBtn();
+  } catch (e) {}
+}
+canvas.addEventListener('click', armMusicAutostart, { once: true });
+canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
 </script>
 </body>
 </html>
