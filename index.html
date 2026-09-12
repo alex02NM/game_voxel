@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>WebGL2 Terrain — Biomes, Mobs, Flight, Multiplayer + Music</title>
   <style>
-    html, body { margin: 0; overflow: hidden; background: #000; }
+    html, body { margin: 0; overflow: hidden; background: #000; height: 100%; }
     canvas { display: block; }
     #fps, #mode, #biome {
       position: fixed; left: 8px; color: #0f0;
@@ -39,23 +39,16 @@
       border: 1px solid #333;
       max-height: 78vh; overflow-y: auto; touch-action: pan-y;
     }
-    #params h3 { margin: 0 0 8px 0; font: 12px monospace; color: #8f8; }
+    #params h3 { margin: 0 0 8px 0; font: 12px monospace; color: #8f8; cursor: pointer; }
+    #params h3::after { content: ' ▾'; color: #6a6; }
+    #params.collapsed h3::after { content: ' ▸'; }
+    #params.collapsed > *:not(h3) { display: none; }
     #params label { display: block; margin-top: 8px; color: #ccc; }
     #params input[type=range] { width: 100%; margin-top: 2px; }
     #params .val { color: #ff0; float: right; }
     #params #sync-note {
       color: #6af; margin-top: 8px; font-size: 10px; display: block;
     }
-    #music-btn {
-      margin-top: 10px; width: 100%; padding: 6px 8px;
-      background: #2a2a3a; color: #cdf; border: 1px solid #445;
-      border-radius: 4px; cursor: pointer; font: 12px monospace;
-    }
-    #music-btn:hover { background: #3a3a4a; }
-    #music-btn.on { background: #2a4a2a; color: #cfc; border-color: #4a4; }
-    #music-vol-row { margin-top: 8px; }
-
-    /* ---------- Panel buttons (music / fullscreen / touch) ---------- */
     #params button {
       margin-top: 8px; width: 100%; padding: 6px 8px;
       background: #2a2a3a; color: #cdf; border: 1px solid #445;
@@ -63,67 +56,200 @@
     }
     #params button:hover { background: #3a3a4a; }
     #params button.on { background: #2a4a2a; color: #cfc; border-color: #4a4a; }
+    #music-vol-row { margin-top: 8px; }
 
-    /* ---------- Collapsible panel ---------- */
-    #params h3 { cursor: pointer; }
-    #params h3::after { content: ' ▾'; color: #6a6; }
-    #params.collapsed h3::after { content: ' ▸'; }
-    #params.collapsed > *:not(h3) { display: none; }
-
-    /* ---------- Mobile / touch ---------- */
+    /* ============================================================
+       MOBILE TOUCH CONTROLS
+       ============================================================ */
     canvas { touch-action: none; -webkit-tap-highlight-color: transparent; }
-    .tbtn, #joystick { -webkit-tap-highlight-color: transparent; }
+    button { -webkit-tap-highlight-color: transparent; }
 
     #touch-controls {
       position: fixed; inset: 0; z-index: 15;
       pointer-events: none; display: none;
+      touch-action: none;
+      -webkit-user-select: none; user-select: none;
     }
     #touch-controls.enabled { display: block; }
 
+    /* ---------- Movement joystick ---------- */
     #joystick {
-      position: absolute; left: 20px; bottom: 24px;
-      width: 132px; height: 132px; border-radius: 50%;
-      background: rgba(255, 255, 255, 0.07);
-      border: 2px solid rgba(160, 255, 200, 0.28);
-      box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.45);
-      pointer-events: auto; touch-action: none;
+      position: absolute;
+      left: max(18px, env(safe-area-inset-left, 0px) + 14px);
+      bottom: max(18px, env(safe-area-inset-bottom, 0px) + 18px);
+      width: 156px; height: 156px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 50%,
+          rgba(70, 200, 160, 0.10) 0%,
+          rgba(20, 55, 48, 0.30) 62%,
+          rgba(8, 16, 15, 0.48) 100%);
+      border: 2px solid rgba(130, 240, 190, 0.35);
+      box-shadow:
+        inset 0 0 32px rgba(0, 0, 0, 0.65),
+        0 6px 24px rgba(0, 0, 0, 0.55),
+        0 0 0 1px rgba(255, 255, 255, 0.05);
+      pointer-events: auto;
+      touch-action: none;
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+    }
+    #joystick::after {
+      content: '';
+      position: absolute; inset: 14px;
+      border-radius: 50%;
+      border: 1px dashed rgba(140, 255, 200, 0.18);
+      pointer-events: none;
+    }
+    #joystick::before {
+      content: '';
+      position: absolute; left: 50%; top: 50%;
+      width: 6px; height: 6px; margin: -3px 0 0 -3px;
+      border-radius: 50%;
+      background: rgba(180, 255, 210, 0.5);
+      box-shadow: 0 0 10px rgba(140, 255, 200, 0.7);
+      pointer-events: none;
     }
     #stick {
       position: absolute; left: 50%; top: 50%;
-      width: 58px; height: 58px; margin: -29px 0 0 -29px;
+      width: 70px; height: 70px; margin: -35px 0 0 -35px;
       border-radius: 50%;
-      background: radial-gradient(circle at 35% 35%,
-                  rgba(180, 255, 215, 0.55), rgba(60, 140, 110, 0.45));
-      border: 2px solid rgba(190, 255, 220, 0.6);
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+      background:
+        radial-gradient(circle at 35% 28%,
+          rgba(230, 255, 240, 0.95) 0%,
+          rgba(100, 220, 170, 0.88) 42%,
+          rgba(28, 118, 92, 0.95) 100%);
+      border: 2px solid rgba(210, 255, 230, 0.85);
+      box-shadow:
+        0 6px 18px rgba(0, 0, 0, 0.55),
+        0 0 22px rgba(100, 220, 170, 0.35),
+        inset 0 3px 8px rgba(255, 255, 255, 0.30),
+        inset 0 -4px 10px rgba(0, 60, 40, 0.42);
       will-change: transform;
+      pointer-events: none;
     }
 
-    #touch-buttons {
-      position: absolute; right: 16px; bottom: 24px;
-      display: grid; grid-template-columns: repeat(2, 66px);
+    /* ---------- Right-side control stack ---------- */
+    #right-controls {
+      position: absolute;
+      right: max(14px, env(safe-area-inset-right, 0px) + 12px);
+      bottom: max(16px, env(safe-area-inset-bottom, 0px) + 16px);
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
       gap: 12px;
+      pointer-events: none;
     }
+
+    #secondary-row {
+      display: flex;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    #primary-grid {
+      display: grid;
+      grid-template-columns: 84px 84px;
+      grid-template-rows: 84px 84px;
+      gap: 12px;
+      pointer-events: none;
+    }
+
     .tbtn {
-      pointer-events: auto; touch-action: none;
-      width: 66px; height: 66px; border-radius: 50%;
+      pointer-events: auto;
+      touch-action: none;
       display: flex; align-items: center; justify-content: center;
-      background: rgba(18, 26, 36, 0.6);
-      color: #cfe9ff; border: 2px solid rgba(140, 200, 255, 0.45);
-      font: 20px monospace; cursor: pointer; padding: 0;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+      background:
+        radial-gradient(circle at 35% 30%,
+          rgba(120, 200, 255, 0.35) 0%,
+          rgba(28, 55, 85, 0.72) 100%);
+      color: #e6f4ff;
+      border: 2px solid rgba(140, 200, 255, 0.55);
+      cursor: pointer; padding: 0;
+      box-shadow:
+        0 4px 14px rgba(0, 0, 0, 0.5),
+        inset 0 1px 3px rgba(255, 255, 255, 0.16);
+      transition: transform 0.07s ease-out, background 0.12s, box-shadow 0.12s;
+      -webkit-user-select: none; user-select: none;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-weight: 700;
+      line-height: 1;
     }
     .tbtn.active, .tbtn:active {
-      background: rgba(60, 130, 110, 0.75);
-      border-color: rgba(150, 255, 200, 0.9);
-      color: #eaffef;
+      transform: scale(0.93);
+      background:
+        radial-gradient(circle at 35% 30%,
+          rgba(160, 255, 210, 0.6) 0%,
+          rgba(40, 145, 115, 0.92) 100%);
+      border-color: rgba(180, 255, 220, 0.95);
+      box-shadow:
+        0 0 22px rgba(120, 255, 200, 0.65),
+        inset 0 1px 3px rgba(255, 255, 255, 0.28);
+    }
+    .tbtn.on {
+      background:
+        radial-gradient(circle at 35% 30%,
+          rgba(160, 255, 210, 0.55) 0%,
+          rgba(35, 130, 100, 0.9) 100%);
+      border-color: rgba(180, 255, 220, 0.95);
+      box-shadow:
+        0 0 22px rgba(120, 255, 200, 0.55),
+        inset 0 1px 3px rgba(255, 255, 255, 0.28);
     }
 
+    /* Sizes */
+    .tbtn.lg { width: 84px; height: 84px; border-radius: 50%; font-size: 30px; }
+    .tbtn.sm { width: 58px; height: 58px; border-radius: 14px; font-size: 22px; }
+
+    /* Grid placement: [fly][sprint] / [down][jump] */
+    #btn-fly    { grid-column: 1; grid-row: 1; }
+    #btn-sprint { grid-column: 2; grid-row: 1; }
+    #btn-down   { grid-column: 1; grid-row: 2; }
+    #btn-jump   { grid-column: 2; grid-row: 2; }
+
+    /* Floating fullscreen button (mobile-only, hidden when in fullscreen) */
+    #fs-fab {
+      position: fixed;
+      top: max(12px, env(safe-area-inset-top, 0px) + 10px);
+      right: max(12px, env(safe-area-inset-right, 0px) + 10px);
+      z-index: 30;
+      display: none;
+      width: 50px; height: 50px;
+      border-radius: 14px;
+      background: rgba(18, 28, 40, 0.78);
+      color: #cfe9ff;
+      border: 1px solid rgba(140, 200, 255, 0.55);
+      font-size: 22px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      backdrop-filter: blur(5px);
+      -webkit-backdrop-filter: blur(5px);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+      align-items: center; justify-content: center;
+      padding: 0;
+    }
+    #fs-fab:active {
+      background: rgba(60, 130, 110, 0.85);
+      border-color: rgba(180, 255, 220, 0.95);
+    }
+
+    /* Small screens / landscape phones */
     @media (max-width: 900px) {
       #params { width: 200px; top: 62px; font-size: 11px; }
       #help  { display: none; }
-      #fly   { bottom: 176px; }
       #fps, #mode, #biome, #net { font-size: 11px; }
+    }
+    @media (max-height: 480px) {
+      /* Extra compact layout for landscape phones */
+      #joystick { width: 128px; height: 128px; }
+      #stick    { width: 58px; height: 58px; margin: -29px 0 0 -29px; }
+      #primary-grid {
+        grid-template-columns: 72px 72px;
+        grid-template-rows: 72px 72px;
+        gap: 10px;
+      }
+      .tbtn.lg { width: 72px; height: 72px; font-size: 26px; }
+      .tbtn.sm { width: 50px; height: 50px; font-size: 19px; }
     }
   </style>
 </head>
@@ -140,13 +266,20 @@
 <!-- ---------- Mobile touch controls ---------- -->
 <div id="touch-controls">
   <div id="joystick"><div id="stick"></div></div>
-  <div id="touch-buttons">
-    <button class="tbtn" id="btn-mode"  title="Terrain mode">V</button>
-    <button class="tbtn" id="btn-fly"   title="Toggle flight">✈</button>
-    <button class="tbtn" id="btn-dig"   title="Dig down">−</button>
-    <button class="tbtn" id="btn-raise" title="Raise terrain">+</button>
-    <button class="tbtn" id="btn-down"  title="Descend (fly)">▼</button>
-    <button class="tbtn" id="btn-jump"  title="Jump / ascend">▲</button>
+
+  <div id="right-controls">
+    <div id="secondary-row">
+      <button class="tbtn sm" id="btn-raise" title="Raise terrain">+</button>
+      <button class="tbtn sm" id="btn-dig"   title="Dig terrain">−</button>
+      <button class="tbtn sm" id="btn-mode"  title="Cycle terrain mode">V</button>
+      <button class="tbtn sm" id="btn-reset" title="Reset terrain edits">↺</button>
+    </div>
+    <div id="primary-grid">
+      <button class="tbtn lg" id="btn-fly"    title="Toggle flight">✈</button>
+      <button class="tbtn lg" id="btn-sprint" title="Toggle sprint">⚡</button>
+      <button class="tbtn lg" id="btn-down"   title="Descend / Sneak">▼</button>
+      <button class="tbtn lg" id="btn-jump"   title="Jump / Ascend">▲</button>
+    </div>
   </div>
 </div>
 
@@ -202,6 +335,7 @@ let modelViewMatrix = mat4.create();
 // ---- Touch / mobile input ----
 const joyVec = { x: 0, y: 0 };   // virtual joystick vector, -1..1 (y down = backward)
 let lookTouchId = null;          // identifier of the finger currently looking around
+let sprinting = false;           // toggled by the mobile sprint button
 
 // ---- Physics ----
 let velocityY = 13;
@@ -277,7 +411,7 @@ canvas.addEventListener('touchstart', e => {
 }, { passive: false });
 
 canvas.addEventListener('touchmove', e => {
-  const s = 0.004;                        // look sensitivity (rad / px)
+  const s = 0.005;                        // look sensitivity (rad / px)
   for (let i = 0; i < e.changedTouches.length; i++) {
     const t = e.changedTouches[i];
     if (t.identifier !== lookTouchId) continue;
@@ -323,7 +457,9 @@ function handleKeyInput() {
   vec3.normalize(forward, forward);
   vec3.normalize(right, right);
 
-  const step = flightMode ? 0.5 : 0.05;
+  // Sprint: mobile toggle (⚡) OR Shift on keyboard when not flying.
+  const sprintMult = (sprinting || (keysPressed['Shift'] && !flightMode)) ? 2.4 : 1.0;
+  const step = (flightMode ? 0.5 : 0.05) * sprintMult;
 
   // ---- Merge keyboard + virtual joystick into one movement vector ----
   let moveF = 0, moveR = 0;
@@ -342,8 +478,9 @@ function handleKeyInput() {
   if (moveR !== 0) targetPosition = vec3.scaleAndAdd([], targetPosition, right,   moveR * step);
 
   if (flightMode) {
-    if (keysPressed[' '])     targetPosition[1] += step * 0.6;
-    if (keysPressed['Shift']) targetPosition[1] -= step * 0.6;
+    if (keysPressed[' ']) targetPosition[1] += step * 0.6;
+    // Shift now doubles as sprint on the ground; only descend in flight mode.
+    if (keysPressed['Shift'] && !sprinting) targetPosition[1] -= step * 0.6;
   }
 }
 
@@ -494,10 +631,6 @@ const int CLIP_N = 128;
 void main() {
     // ------------------------------------------------------------
     //  MINECRAFT BLOCKS  (u_mode > 1.5)
-    //  Uses the SAME LOD clipmap scheme as SMOOTH/VOXEL: each level
-    //  doubles the effective block size, so the world reaches the
-    //  same render distance (~4096 units) with a bounded triangle
-    //  budget. Level 0 keeps the true u_blockSize.
     // ------------------------------------------------------------
     if (u_mode > 1.5) {
         int gridSize = int(u_gridSize);
@@ -506,14 +639,12 @@ void main() {
         int cx = columnID / gridSize;
         int cz = columnID % gridSize;
 
-        // Per-level block size (LOD).
         float B = u_blockSize * exp2(float(u_level));
         float H = 0.5 * B;
 
         vec2 camBlock = u_cameraPos / B;
         vec2 origin = floor(camBlock) - vec2(float(gridSize) * 0.5);
 
-        // Punch a hole for the finer level underneath.
         if (u_level > 0) {
             int hc = gridSize / 2;
             int hr = gridSize / 4 - 1;
@@ -583,18 +714,14 @@ void main() {
     float cell  = u_baseCell * exp2(float(u_level));
     float halfN = float(CLIP_N) * 0.5;
 
-    // Snap the grid centre to this level's cell size so the mesh never
-    // swims through world space (this is what made the texture "lag").
     vec2 center = floor(u_cameraPos / cell) * cell;
     vec2 origin = center - vec2(halfN) * cell;
 
-    // Punch a hole for the finer level underneath (2-cell overlap so
-    // there are no cracks even when the two grids are snapped apart).
     if (u_level > 0) {
         int hc = CLIP_N / 2;
         int hr = CLIP_N / 4 - 2;
         if (ix >= hc - hr && ix < hc + hr && iz >= hc - hr && iz < hc + hr) {
-            gl_Position = vec4(2.0, 2.0, 2.0, 1.0);   // fully clipped
+            gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
             v_uv = vec2(0.0);
             v_worldPos = vec3(0.0);
             v_normal = vec3(0.0, 1.0, 0.0);
@@ -732,29 +859,24 @@ const uBaseCell       = gl.getUniformLocation(program, 'u_baseCell');
 const uLevel          = gl.getUniformLocation(program, 'u_level');
 
 // ---- Geometry clipmap configuration ----
-const CLIP_N = 128;                       // quads per side, per level
+const CLIP_N = 128;
 
 function clipBaseCell() {
-  // VOXEL mode snaps heights to the block grid, so match the cell size.
   if (modeIndex === 1) return Math.max(1.0, blockSize);
   return 1.0;
 }
 function clipLevelCount(base) {
-  // Grow levels (each 2× coarser) until the coarsest reaches ~4096 units.
   const TARGET = 4096.0;
   let levels = 1;
   while (levels < 9 && (CLIP_N * 0.5) * base * Math.pow(2, levels - 1) < TARGET) levels++;
   return Math.max(2, levels);
 }
 
-// ---- Minecraft-mode clipmap ----
-// Fixed column count per level; per-level "block" size doubles each level
-// so the world reaches the same ~4096 units as SMOOTH/VOXEL.
 const MC_GRID = 128;
 function blockGridSize() { return MC_GRID; }
 function blockLevelCount() {
   const TARGET = 4096.0;
-  const radius0 = (MC_GRID * 0.5) * blockSize;   // world radius at level 0
+  const radius0 = (MC_GRID * 0.5) * blockSize;
   let levels = 1;
   while (levels < 9 && radius0 * Math.pow(2, levels - 1) < TARGET) levels++;
   return Math.max(2, levels);
@@ -776,7 +898,6 @@ const uProbeOrigin = gl.getUniformLocation(probeProgram, 'u_probeOrigin');
 const uProbeCell   = gl.getUniformLocation(probeProgram, 'u_probeCell');
 const uProbeN      = gl.getUniformLocation(probeProgram, 'u_probeN');
 
-// Cache terrain uniform locations for both programs so we can re-upload on change.
 const probeTerrainLocs = {
   k:    gl.getUniformLocation(probeProgram, 'u_k'),
   p:    gl.getUniformLocation(probeProgram, 'u_p'),
@@ -877,10 +998,8 @@ function terrainHeightAt(x, z) {
   return probePixel[0];
 }
 
-// ---- Heightmap refresh is throttled: this used to stall the GPU
-//      every single frame with a 256×256 readPixels. ----
 let lastHeightmapTime = -1e9;
-const HMAP_INTERVAL_MS = 100;   // 10 Hz instead of 60 Hz
+const HMAP_INTERVAL_MS = 100;
 
 function updateHeightmap(force) {
   const nowMs = performance.now();
@@ -1357,7 +1476,6 @@ image.onerror = () => {
   gl.disable(gl.BLEND);
   startOnce();
 };
-// Failsafe in case the network request neither resolves nor errors.
 setTimeout(startOnce, 4000);
 
 gl.useProgram(program);
@@ -1376,6 +1494,7 @@ function applyTerrainEdit(dig) {
   if (edits.length > MAX_EDITS) edits.shift();
   if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast();
 }
+window.applyTerrainEdit = applyTerrainEdit;
 
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('mousedown', function(event) {
@@ -1457,9 +1576,6 @@ function animate() {
   gl.uniform3f(uFogColor, currentSky[0], currentSky[1], currentSky[2]);
 
   if (modeIndex === 2) {
-    // Minecraft mode: draw a per-level LOD clipmap so it reaches the
-    // same render distance as SMOOTH / VOXEL. Level 0 = true block
-    // size, each subsequent level doubles it.
     const gridSize = blockGridSize();
     const levels   = blockLevelCount();
     const vertsPerLevel = gridSize * gridSize * 30;
@@ -1980,9 +2096,6 @@ window.addEventListener("beforeunload", () => {
 <script>
 // ============================================================
 //  TERRAIN PARAMETER SLIDERS
-//  Every slider updates TERRAIN.k / p / m / seed, pushes the new
-//  values to BOTH shader programs, and schedules a world state
-//  broadcast so remote peers immediately see the same terrain.
 // ============================================================
 const sliders = {
   u_k:      document.getElementById('u_k'),
@@ -1997,7 +2110,6 @@ const labels = {
   u_S_seed: document.getElementById('u_S_seed_val')
 };
 
-// Keep UI in sync with the actual TERRAIN object (called on world sync).
 function syncTerrainSliders() {
   sliders.u_k.value      = TERRAIN.k;
   sliders.u_p.value      = TERRAIN.p;
@@ -2008,7 +2120,6 @@ function syncTerrainSliders() {
   labels.u_m.textContent      = Number(TERRAIN.m).toFixed(0);
   labels.u_S_seed.textContent = Number(TERRAIN.seed).toFixed(2);
 }
-// Expose so networking applyWorldState can call it.
 window.syncTerrainSliders = syncTerrainSliders;
 
 function onSliderInput() {
@@ -2022,10 +2133,7 @@ function onSliderInput() {
   labels.u_m.textContent      = TERRAIN.m.toFixed(0);
   labels.u_S_seed.textContent = TERRAIN.seed.toFixed(2);
 
-  // Update BOTH programs — main render + height probe.
   pushTerrainUniforms();
-
-  // Tell the network layer to broadcast the new world state.
   if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast();
 }
 
@@ -2034,17 +2142,6 @@ syncTerrainSliders();
 
 // ============================================================
 //  AMBIENT MUSIC (Web Audio API — fully procedural)
-//
-//  Design:
-//   • Three sine drones on an A minor chord with slow LFO gain
-//     and slight detune wander — creates a warm breathing pad.
-//   • Convolution reverb with a procedurally generated impulse
-//     response for a soft, cavernous space.
-//   • Random pentatonic bells played through the same reverb,
-//     with very irregular spacing / registers / envelopes, and
-//     occasional quick overlapping "clusters".
-//   • Global music-volume slider drives the master gain; the
-//     button toggles the whole bed on / off.
 // ============================================================
 const music = {
   ctx: null,
@@ -2053,10 +2150,9 @@ const music = {
   drones: [],
   running: false,
   noteTimer: null,
-  volume: 0.5                    // 0..1, matches the slider (50 = default)
+  volume: 0.5
 };
 
-// A minor pentatonic-ish note pool (Hz), extended a little for variety.
 const NOTE_POOL = [
   174.61, 196.00, 220.00, 246.94, 261.63, 293.66,
   329.63, 392.00, 440.00, 523.25, 587.33, 659.25
@@ -2069,7 +2165,6 @@ function makeImpulseResponse(ctx, seconds, decay) {
   for (let ch = 0; ch < 2; ch++) {
     const data = buf.getChannelData(ch);
     for (let i = 0; i < len; i++) {
-      // Slight stereo decorrelation + exponential decay
       const n = (Math.random() * 2 - 1);
       data[i] = n * Math.pow(1 - i / len, decay);
     }
@@ -2083,10 +2178,9 @@ function initAudio() {
   music.ctx = new Ctx();
 
   music.master = music.ctx.createGain();
-  music.master.gain.value = 0.0;      // start silent, fade in on start
+  music.master.gain.value = 0.0;
   music.master.connect(music.ctx.destination);
 
-  // Reverb — used as a parallel wet bus
   const convolver = music.ctx.createConvolver();
   convolver.buffer = makeImpulseResponse(music.ctx, 5.0, 2.5);
   const wet = music.ctx.createGain();
@@ -2098,7 +2192,6 @@ function initAudio() {
 
 function startDrones() {
   const ctx = music.ctx;
-  // A2, E3, A3 — open fifth with octave, warm & neutral.
   const baseFreqs = [110.0, 164.81, 220.0];
 
   for (const freq of baseFreqs) {
@@ -2107,9 +2200,8 @@ function startDrones() {
     osc.frequency.value = freq;
 
     const gain = ctx.createGain();
-    gain.gain.value = 0.075;         // slightly louder than before
+    gain.gain.value = 0.075;
 
-    // Slow amplitude LFO → "breathing" texture
     const ampLfo = ctx.createOscillator();
     ampLfo.frequency.value = 0.06 + Math.random() * 0.08;
     const ampLfoGain = ctx.createGain();
@@ -2117,11 +2209,10 @@ function startDrones() {
     ampLfo.connect(ampLfoGain);
     ampLfoGain.connect(gain.gain);
 
-    // Very slow detune wander → subtle chorus between drones
     const detuneLfo = ctx.createOscillator();
     detuneLfo.frequency.value = 0.09 + Math.random() * 0.05;
     const detuneGain = ctx.createGain();
-    detuneGain.gain.value = 4;      // ±4 cents
+    detuneGain.gain.value = 4;
     detuneLfo.connect(detuneGain);
     detuneGain.connect(osc.detune);
 
@@ -2136,23 +2227,21 @@ function startDrones() {
   }
 }
 
-// Randomised scheduler: quick clusters, normal spacing, or long gaps.
 function scheduleNextNote() {
   if (!music.running) return;
   const r = Math.random();
   let delaySec;
   if (r < 0.20) {
-    delaySec = 0.9 + Math.random() * 1.4;      // quick cluster
+    delaySec = 0.9 + Math.random() * 1.4;
   } else if (r < 0.70) {
-    delaySec = 2.5 + Math.random() * 3.5;      // normal
+    delaySec = 2.5 + Math.random() * 3.5;
   } else {
-    delaySec = 6.0 + Math.random() * 6.0;      // long ambient gap
+    delaySec = 6.0 + Math.random() * 6.0;
   }
 
   music.noteTimer = setTimeout(() => {
     if (!music.running) return;
     playBell();
-    // Sometimes play an immediate harmony / echo right after.
     if (Math.random() < 0.30) {
       setTimeout(() => { if (music.running) playBell(); },
                  100 + Math.random() * 320);
@@ -2165,14 +2254,13 @@ function playBell() {
   const ctx = music.ctx;
   const baseFreq = NOTE_POOL[Math.floor(Math.random() * NOTE_POOL.length)];
 
-  // Random register: 20% sub-octave, 55% middle, 25% upper octave.
   const roll = Math.random();
   const octave = roll < 0.20 ? 0.5 : (roll < 0.75 ? 1.0 : 2.0);
   const freq   = baseFreq * octave;
-  const detune = (Math.random() - 0.5) * 22;   // ±11 cents organic drift
+  const detune = (Math.random() - 0.5) * 22;
 
   const osc = ctx.createOscillator();
-  const osc2 = ctx.createOscillator();          // soft harmonic partial
+  const osc2 = ctx.createOscillator();
 
   const t1 = Math.random();
   osc.type  = t1 < 0.55 ? 'sine' : (t1 < 0.85 ? 'triangle' : 'sine');
@@ -2190,7 +2278,7 @@ function playBell() {
   const attack  = 0.7 + Math.random() * 2.4;
   const hold    = 1.4 + Math.random() * 3.0;
   const release = 3.0 + Math.random() * 4.5;
-  const peak    = 0.20 + Math.random() * 0.16;   // louder than before
+  const peak    = 0.20 + Math.random() * 0.16;
 
   gain.gain.setValueAtTime(0, now);
   gain.gain.linearRampToValueAtTime(peak, now + attack);
@@ -2222,7 +2310,6 @@ function startAmbientMusic() {
   startDrones();
   scheduleNextNote();
 
-  // Gentle fade-in to the current slider volume.
   const t = music.ctx.currentTime;
   const target = music.volume > 0.001 ? music.volume : 0.0;
   music.master.gain.cancelScheduledValues(t);
@@ -2242,7 +2329,6 @@ function stopAmbientMusic() {
     music.master.gain.setValueAtTime(music.master.gain.value, t);
     music.master.gain.linearRampToValueAtTime(0.0, t + 1.5);
 
-    // Kill the oscillators after the fade
     setTimeout(() => {
       for (const node of music.drones) {
         try { node.stop(); } catch (e) {}
@@ -2252,7 +2338,6 @@ function stopAmbientMusic() {
   }
 }
 
-// ---- Volume slider ----
 const musicVolSlider = document.getElementById('music_vol');
 const musicVolLabel  = document.getElementById('music_vol_val');
 
@@ -2272,7 +2357,6 @@ music.volume = parseFloat(musicVolSlider.value) / 100;
 musicVolLabel.textContent = Math.round(music.volume * 100) + '%';
 musicVolSlider.addEventListener('input', applyMusicVolume);
 
-// ---- Music button ----
 const musicBtn = document.getElementById('music-btn');
 function updateMusicBtn() {
   if (music.running) {
@@ -2288,18 +2372,14 @@ updateMusicBtn();
 musicBtn.addEventListener('click', () => {
   if (music.running) { stopAmbientMusic(); }
   else               { startAmbientMusic(); }
-  // Update label after the toggle.
   setTimeout(updateMusicBtn, 50);
   updateMusicBtn();
 });
 
-// Auto-start muted on first user gesture (browsers block autoplay
-// before an interaction). Clicking the canvas or the button works.
 let musicAutostartArmed = true;
 function armMusicAutostart() {
   if (!musicAutostartArmed) return;
   musicAutostartArmed = false;
-  // Try to start; if the context is blocked we just leave it off.
   try {
     startAmbientMusic();
     updateMusicBtn();
@@ -2310,7 +2390,7 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
 </script>
 
 <!-- ============================================================
-     MOBILE TOUCH CONTROLS + FULLSCREEN + RESIZE
+     MOBILE TOUCH CONTROLS + AUTO-FULLSCREEN + RESIZE
      ============================================================ -->
 <script>
 (function () {
@@ -2320,12 +2400,115 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
     window.matchMedia('(pointer: coarse)').matches;
 
   // ------------------------------------------------------------
-  //  VIRTUAL JOYSTICK  →  writes into the global `joyVec`
+  //  VIEWPORT RESIZE  (defined first so fullscreen handlers can use it)
+  // ------------------------------------------------------------
+  function resizeViewport() {
+    const w = Math.max(1, window.innerWidth);
+    const h = Math.max(1, window.innerHeight);
+    if (canvas.width === w && canvas.height === h) return;
+    canvas.width  = w;
+    canvas.height = h;
+    gl.viewport(0, 0, w, h);
+    mat4.perspective(projectionMatrix, Math.PI / 4, w / h, 0.5, 250000);
+  }
+  window.addEventListener('resize', resizeViewport);
+  window.addEventListener('orientationchange', () => setTimeout(resizeViewport, 350));
+  resizeViewport();
+
+  // ------------------------------------------------------------
+  //  FULLSCREEN
+  // ------------------------------------------------------------
+  function fsElement() {
+    return document.fullscreenElement ||
+           document.webkitFullscreenElement ||
+           document.mozFullScreenElement ||
+           document.msFullscreenElement || null;
+  }
+
+  function requestFs() {
+    const el  = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen ||
+                el.mozRequestFullScreen || el.msRequestFullscreen;
+    if (!req) return Promise.reject(new Error('no-api'));
+    let p;
+    try { p = req.call(el); } catch (e) { return Promise.reject(e); }
+    if (p && typeof p.then === 'function') {
+      return p.then(() => {
+        // Best-effort landscape lock (not supported on iOS Safari).
+        try {
+          if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(() => {});
+          }
+        } catch (e) {}
+      });
+    }
+    return Promise.resolve();
+  }
+
+  function exitFs() {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen ||
+                 document.mozCancelFullScreen || document.msExitFullscreen;
+    if (exit) {
+      try {
+        const p = exit.call(document);
+        if (p && p.catch) p.catch(() => {});
+      } catch (e) {}
+    }
+  }
+
+  function toggleFs() {
+    if (fsElement()) exitFs();
+    else requestFs().catch(() => {});
+  }
+
+  // Auto-enter fullscreen on first user gesture, mobile only.
+  if (isTouchDevice) {
+    const armFs = () => {
+      document.removeEventListener('pointerdown', armFs);
+      document.removeEventListener('touchstart',  armFs);
+      document.removeEventListener('click',       armFs);
+      if (!fsElement()) requestFs().catch(() => {});
+    };
+    document.addEventListener('pointerdown', armFs, { once: true, passive: true });
+    document.addEventListener('touchstart',  armFs, { once: true, passive: true });
+    document.addEventListener('click',       armFs, { once: true, passive: true });
+  }
+
+  // Panel fullscreen button
+  const fsBtn = document.getElementById('fs-btn');
+
+  // Floating mobile fullscreen FAB (shown when not in fullscreen on mobile)
+  const fsFab = document.createElement('button');
+  fsFab.id = 'fs-fab';
+  fsFab.textContent = '⛶';
+  fsFab.title = 'Enter fullscreen';
+  fsFab.addEventListener('click', toggleFs);
+  document.body.appendChild(fsFab);
+
+  function updateFsBtn() {
+    const on = !!fsElement();
+    fsBtn.textContent = on ? '⛶ Fullscreen: ON' : '⛶ Fullscreen: OFF';
+    fsBtn.classList.toggle('on', on);
+    fsFab.style.display = (isTouchDevice && !on) ? 'flex' : 'none';
+  }
+  fsBtn.addEventListener('click', toggleFs);
+
+  ['fullscreenchange', 'webkitfullscreenchange',
+   'mozfullscreenchange', 'MSFullscreenChange'].forEach(ev => {
+    document.addEventListener(ev, () => {
+      updateFsBtn();
+      setTimeout(resizeViewport, 120);
+    });
+  });
+  updateFsBtn();
+
+  // ------------------------------------------------------------
+  //  VIRTUAL JOYSTICK
   // ------------------------------------------------------------
   const joyBase = document.getElementById('joystick');
   const joyKnob = document.getElementById('stick');
-  const JOY_MAX = 48;                 // px the knob can travel from centre
-  const JOY_DEADZONE = 0.16;
+  const JOY_MAX = 50;               // px the knob can travel from centre
+  const JOY_DEADZONE = 0.14;
 
   let joyPointerId = null;
   let joyCenterX = 0, joyCenterY = 0;
@@ -2380,7 +2563,7 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
   });
 
   // ------------------------------------------------------------
-  //  HOLD BUTTONS  (jump / ascend, descend)  →  keysPressed
+  //  HOLD BUTTONS  (jump / ascend, descend) → write to keysPressed
   // ------------------------------------------------------------
   function bindHold(id, keyName) {
     const el = document.getElementById(id);
@@ -2407,6 +2590,7 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
   // ------------------------------------------------------------
   function bindTap(id, fn) {
     const el = document.getElementById(id);
+    if (!el) return;
     el.addEventListener('pointerdown', e => {
       e.preventDefault();
       el.classList.add('active');
@@ -2415,88 +2599,49 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
     });
   }
 
-  bindTap('btn-mode', () => {                       // cycle terrain mode
+  bindTap('btn-mode', () => {
     modeIndex = (modeIndex + 1) % 3;
     updateModeLabel();
     if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast();
   });
 
-  bindTap('btn-fly', () => {                        // toggle flight
+  bindTap('btn-reset', () => {
+    edits.length = 0;
+    if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast();
+  });
+
+  bindTap('btn-raise', () => applyTerrainEdit(false));
+  bindTap('btn-dig',   () => applyTerrainEdit(true));
+
+  // ------------------------------------------------------------
+  //  FLY TOGGLE  (with visual "on" state)
+  // ------------------------------------------------------------
+  const flyBtn = document.getElementById('btn-fly');
+  function updateFlyBtn() {
+    flyBtn.classList.toggle('on', flightMode);
+  }
+  flyBtn.addEventListener('pointerdown', e => {
+    e.preventDefault();
     flightMode = !flightMode;
     if (flightMode) velocityY = 0;
     updateFlyLabel();
+    updateFlyBtn();
   });
-
-  bindTap('btn-raise', () => applyTerrainEdit(false));   // raise terrain
-  bindTap('btn-dig',   () => applyTerrainEdit(true));    // dig terrain
+  updateFlyBtn();
 
   // ------------------------------------------------------------
-  //  FULLSCREEN
+  //  SPRINT TOGGLE  (with visual "on" state)
   // ------------------------------------------------------------
-  const fsBtn = document.getElementById('fs-btn');
-
-  function fsElement() {
-    return document.fullscreenElement ||
-           document.webkitFullscreenElement ||
-           document.mozFullScreenElement ||
-           document.msFullscreenElement || null;
+  const sprintBtn = document.getElementById('btn-sprint');
+  function updateSprintBtn() {
+    sprintBtn.classList.toggle('on', sprinting);
   }
-
-  function toggleFullscreen() {
-    if (fsElement()) {
-      const exit = document.exitFullscreen || document.webkitExitFullscreen ||
-                   document.mozCancelFullScreen || document.msExitFullscreen;
-      if (exit) {
-        const p = exit.call(document);
-        if (p && p.catch) p.catch(() => {});
-      }
-    } else {
-      const el  = document.documentElement;
-      const req = el.requestFullscreen || el.webkitRequestFullscreen ||
-                  el.mozRequestFullScreen || el.msRequestFullscreen;
-      if (req) {
-        const p = req.call(el);
-        if (p && p.catch) p.catch(() => {});
-      } else {
-        console.warn('Fullscreen API not supported on this device/browser.');
-      }
-    }
-  }
-
-  function updateFsBtn() {
-    const on = !!fsElement();
-    fsBtn.textContent = on ? '⛶ Fullscreen: ON' : '⛶ Fullscreen: OFF';
-    fsBtn.classList.toggle('on', on);
-  }
-
-  fsBtn.addEventListener('click', toggleFullscreen);
-
-  // ------------------------------------------------------------
-  //  VIEWPORT RESIZE (window resize, rotation, fullscreen change)
-  // ------------------------------------------------------------
-  function resizeViewport() {
-    const w = Math.max(1, window.innerWidth);
-    const h = Math.max(1, window.innerHeight);
-    if (canvas.width === w && canvas.height === h) return;
-    canvas.width  = w;
-    canvas.height = h;
-    gl.viewport(0, 0, w, h);
-    mat4.perspective(projectionMatrix, Math.PI / 4, w / h, 0.5, 250000);
-  }
-
-  window.addEventListener('resize', resizeViewport);
-  window.addEventListener('orientationchange', () => setTimeout(resizeViewport, 350));
-
-  ['fullscreenchange', 'webkitfullscreenchange',
-   'mozfullscreenchange', 'MSFullscreenChange'].forEach(ev => {
-    document.addEventListener(ev, () => {
-      updateFsBtn();
-      setTimeout(resizeViewport, 120);
-    });
+  sprintBtn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    sprinting = !sprinting;
+    updateSprintBtn();
   });
-
-  updateFsBtn();
-  resizeViewport();
+  updateSprintBtn();
 
   // ------------------------------------------------------------
   //  TOUCH-CONTROLS TOGGLE  (auto-on for touch devices)
@@ -2514,6 +2659,8 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
       joyKnob.style.transform = 'translate(0px, 0px)';
       keysPressed[' ']     = false;
       keysPressed['Shift'] = false;
+      sprinting = false;
+      updateSprintBtn();
     }
   }
 
