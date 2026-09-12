@@ -1,32 +1,1734 @@
 <!DOCTYPE html>
-    <html>
-
-      <style>
-    body {
-      margin: 0;
-      overflow: hidden;
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>WebGL2 Terrain — Biomes, Mobs, Flight, Multiplayer</title>
+  <style>
+    html, body { margin: 0; overflow: hidden; background: #000; }
+    canvas { display: block; }
+    #fps, #mode, #biome {
+      position: fixed; left: 8px; color: #0f0;
+      font: 14px monospace; z-index: 10;
     }
-
-    canvas {
-      display: block;
-      cursor: none;
+    #fps   { top: 8px; }
+    #mode  { top: 26px; color: #0ff; }
+    #biome { top: 44px; color: #ff0; }
+    #net   { top: 62px; color: #f80; }
+    #help {
+      position: fixed; left: 8px; bottom: 8px; color: #888;
+      font: 12px monospace; z-index: 10;
     }
-
-    #fps {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      color: green;
+    #fly {
+      position: fixed; right: 8px; bottom: 8px; color: #f0f;
+      font: 14px monospace; z-index: 10;
+    }
+    #status {
+      position: fixed; right: 8px; top: 8px; color: #0af;
+      font: 12px monospace; z-index: 10; text-align: right;
     }
   </style>
+</head>
 <body>
-    
-      <canvas id="webgl-canvas"></canvas>
-      <div id="fps"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.4.0/gl-matrix.js"></script>
-<script src="controls/mobile.js"></script>
+<canvas id="webgl-canvas"></canvas>
+<div id="fps"></div>
+<div id="mode"></div>
+<div id="biome"></div>
+<div id="net"></div>
+<div id="fly"></div>
+<div id="status"></div>
+<div id="help">WASD · Space jump · F = fly · LMB raise · RMB dig · R reset · V mode · [ ] block size</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+<script>
+// ============================================================
+//  CANVAS / GL
+// ============================================================
+const canvas = document.getElementById('webgl-canvas');
+canvas.width  = window.innerWidth;
+canvas.height = window.innerHeight;
 
-<script src="backend.js"></script>
+const gl = canvas.getContext("webgl2", { antialias: true, depth: true });
+if (!gl) console.error('Unable to initialize WebGL 2.');
 
+// ============================================================
+//  CAMERA / INPUT STATE
+// ============================================================
+let mouseX = 0, mouseY = 0;
+let targetPosition = [100, 40, 2];
+let position = [0, 10, 10];
+let keysPressed = {};
+let touchStartX = 0, touchStartY = 0;
+let modelViewMatrix = mat4.create();
+
+// ---- Physics ----
+let velocityY = 13;
+const GRAVITY = -30.0;
+const EYE_HEIGHT = 2.0;
+const JUMP_SPEED = 12.0;
+let grounded = true;
+
+// ---- Flight ----
+let flightMode = false;
+
+// ---- Terrain edits ----
+const MAX_EDITS = 32;
+const edits = [];
+
+// ---- Terrain mode ----
+let modeIndex = 0;
+const MODE_NAMES = ['SMOOTH', 'VOXEL', 'MINECRAFT BLOCKS'];
+let blockSize = 1.0;
+
+const SUN_DIR = [0.45, 0.85, 0.30];
+
+const BIOMES = [
+  { name: 'PLAINS', sky: [0.55, 0.75, 0.95], zombie: 0.22, animal: 0.78 },
+  { name: 'FOREST', sky: [0.32, 0.55, 0.50], zombie: 0.45, animal: 0.55 },
+  { name: 'DESERT', sky: [0.96, 0.80, 0.52], zombie: 0.35, animal: 0.65 },
+  { name: 'SNOW',   sky: [0.78, 0.86, 0.99], zombie: 0.30, animal: 0.70 },
+];
+let currentSky = [0.55, 0.75, 0.95];
+let currentBiomeName = 'PLAINS';
+
+document.addEventListener('keydown', e => { keysPressed[e.key] = true; });
+document.addEventListener('keyup',   e => { keysPressed[e.key] = false; });
+
+document.addEventListener('keydown', function(event) {
+  if (event.key === 'v' || event.key === 'V') {
+    modeIndex = (modeIndex + 1) % 3;
+    updateModeLabel();
+    if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast();
+  }
+  if (event.key === '[') { blockSize = Math.max(1.0, blockSize - 1.0); updateModeLabel();
+    if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast(); }
+  if (event.key === ']') { blockSize = Math.min(16.0, blockSize + 1.0); updateModeLabel();
+    if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast(); }
+  if (event.key === 'r' || event.key === 'R') { edits.length = 0;
+    if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast(); }
+  if (event.key === 'f' || event.key === 'F') {
+    flightMode = !flightMode;
+    if (flightMode) velocityY = 0;
+    updateFlyLabel();
+  }
+});
+
+function updateFlyLabel() {
+  document.getElementById('fly').textContent =
+    flightMode ? 'FLIGHT: ON  (F to toggle)' : '';
+}
+
+canvas.addEventListener('touchstart', e => {
+  touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY;
+}, false);
+canvas.addEventListener('touchmove', e => {
+  const s = 0.002;
+  const dx = e.touches[0].clientX - touchStartX;
+  const dy = e.touches[0].clientY - touchStartY;
+  touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY;
+  mouseX += dx * s; mouseY -= dy * s;
+  mouseY = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, mouseY));
+}, false);
+
+function handleMouseMove(event) {
+  const s = 0.002;
+  const dx = event.movementX || event.mozMovementX || 0;
+  const dy = event.movementY || event.mozMovementY || 0;
+  mouseX += dx * s; mouseY -= dy * s;
+  mouseY = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, mouseY));
+}
+
+function handleKeyInput() {
+  const forward = vec3.create();
+  const right   = vec3.create();
+
+  forward[0] = -modelViewMatrix[2];
+  forward[1] = -modelViewMatrix[6];
+  forward[2] = -modelViewMatrix[10];
+  right[0]   =  modelViewMatrix[0];
+  right[1]   =  modelViewMatrix[4];
+  right[2]   =  modelViewMatrix[8];
+
+  if (!flightMode) { forward[1] = 0; right[1] = 0; }
+  vec3.normalize(forward, forward);
+  vec3.normalize(right, right);
+
+  const step = flightMode ? 0.5 : 0.05;
+
+  if (keysPressed['s']) targetPosition = vec3.scaleAndAdd([], targetPosition, forward, -step);
+  if (keysPressed['w']) targetPosition = vec3.scaleAndAdd([], targetPosition, forward,  step);
+  if (keysPressed['a']) targetPosition = vec3.scaleAndAdd([], targetPosition, right,   -step);
+  if (keysPressed['d']) targetPosition = vec3.scaleAndAdd([], targetPosition, right,    step);
+
+  if (flightMode) {
+    if (keysPressed[' '])     targetPosition[1] += step * 0.6;
+    if (keysPressed['Shift']) targetPosition[1] -= step * 0.6;
+  }
+}
+
+function applyGravity(dt) {
+  const floorY = terrainHeightAt(targetPosition[0], targetPosition[2]) + EYE_HEIGHT;
+
+  if (flightMode) {
+    if (targetPosition[1] < floorY) targetPosition[1] = floorY;
+    velocityY = 0; grounded = false; return;
+  }
+
+  if (keysPressed[' '] && grounded) { velocityY = JUMP_SPEED; grounded = false; }
+  velocityY += GRAVITY * dt;
+  let y = targetPosition[1] + velocityY * dt;
+  if (y <= floorY) { y = floorY; velocityY = 0; grounded = true; }
+  else grounded = false;
+  targetPosition[1] = y;
+}
+
+// ---- Pointer lock ----
+canvas.requestPointerLock =
+  canvas.requestPointerLock || canvas.mozRequestPointerLock || canvas.webkitRequestPointerLock;
+document.exitPointerLock =
+  document.exitPointerLock || document.mozExitPointerLock || document.webkitExitPointerLock;
+canvas.addEventListener('click', () => canvas.requestPointerLock());
+document.addEventListener('pointerlockchange', lockChangeAlert, false);
+document.addEventListener('mozpointerlockchange', lockChangeAlert, false);
+document.addEventListener('webkitpointerlockchange', lockChangeAlert, false);
+function lockChangeAlert() {
+  if (document.pointerLockElement === canvas ||
+      document.mozPointerLockElement === canvas ||
+      document.webkitPointerLockElement === canvas) {
+    document.addEventListener('mousemove', handleMouseMove);
+  } else {
+    document.removeEventListener('mousemove', handleMouseMove);
+  }
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.exitPointerLock(); });
+
+// ============================================================
+//  SHARED TERRAIN GLSL
+// ============================================================
+const terrainGLSL = `
+uniform vec4 u_edits[32];
+uniform int  u_editCount;
+uniform float u_blocky, u_blockSize, u_mode;
+
+float f(float x, float s, float k, float p) {
+    float val = 45731.0 * cos(1e5 * floor(x) + s);
+    return (k * mod(val, 2.0)) / p;
+}
+float g(float a, float b, float c, float d, float x) {
+    return -0.5 * (b - d) * cos(3.1415926 * (x - c) / (a - c)) + 0.5 * (b + d);
+}
+float h(float x, float s, float k, float p) {
+    return g(floor(x), f(x, s, k, p), floor(x) + 1.0, f(x + 1.0, s, k, p), x);
+}
+float i(float x, float y, float s, float k, float p) {
+    float a = floor(x);
+    float b = h(y, a + 45731.0 * s, k, p);
+    float c = a + 1.0;
+    float d = h(y, floor(x + 1.0) + 45731.0 * s, k, p);
+    return g(a, b, c, d, x);
+}
+float voxel_round(float v) { return floor(v / u_blockSize + 0.5) * u_blockSize; }
+
+float terrain_height_raw(vec2 pos, float k, float p, float m, float s) {
+    vec2 scaled = pos / m;
+    float height = k * i(scaled.x, scaled.y, s, k, p);
+    for (int n = 0; n < 32; n++) {
+        if (n >= u_editCount) break;
+        vec4 e = u_edits[n];
+        height += e.w * (1.0 - smoothstep(0.0, e.z, length(pos - e.xy)));
+    }
+    return height;
+}
+float terrain_height(vec2 pos, float k, float p, float m, float s) {
+    bool isBlocky = u_blocky > 0.5;
+    vec2 samplePos = isBlocky ? (floor(pos / u_blockSize) + 0.5) * u_blockSize : pos;
+    float height = terrain_height_raw(samplePos, k, p, m, s);
+    if (isBlocky) height = voxel_round(height);
+    return height;
+}
+float block_height(vec2 centre, float k, float p, float m, float s) {
+    return voxel_round(terrain_height_raw(centre, k, p, m, s));
+}
+float terrain_height_mode(vec2 pos, float k, float p, float m, float s) {
+    if (u_mode > 1.5) {
+        vec2 c = (floor(pos / u_blockSize) + 0.5) * u_blockSize;
+        return block_height(c, k, p, m, s);
+    }
+    return terrain_height(pos, k, p, m, s);
+}
+`;
+
+const biomeGLSL = `
+float bnoise(vec2 p) {
+    return sin(p.x * 0.0125) * cos(p.y * 0.0107)
+         + 0.5  * sin(p.x * 0.0310 + 1.7) * cos(p.y * 0.0265 - 0.9)
+         + 0.25 * sin(p.x * 0.0710 + 4.1) * cos(p.y * 0.0663 + 2.2);
+}
+vec3 biome_tint(vec2 p, float y) {
+    float t = bnoise(p + vec2(1234.5, 567.8));
+    float m = bnoise(p * 1.3 + vec2(-987.6, 321.4));
+    vec3 cPlains = vec3(0.55, 0.80, 0.42);
+    vec3 cForest = vec3(0.30, 0.60, 0.30);
+    vec3 cDesert = vec3(0.94, 0.85, 0.56);
+    vec3 cSnow   = vec3(0.95, 0.97, 1.00);
+    vec3 cRock   = vec3(0.56, 0.57, 0.59);
+    float snow   = 1.0 - smoothstep(-0.45, -0.05, t);
+    float desert = smoothstep(0.10, 0.50, t) * (1.0 - smoothstep(-0.25, 0.10, m));
+    float forest = smoothstep(0.05, 0.45, m);
+    float plains = 1.0;
+    float sum = snow + desert + forest + plains;
+    vec3 c = (cPlains * plains + cForest * forest + cDesert * desert + cSnow * snow) / sum;
+    c = mix(c, cRock, smoothstep(12.0, 18.0, y) * (1.0 - snow));
+    c = mix(c, cSnow, smoothstep(17.0, 20.5, y));
+    return c;
+}
+`;
+
+// ============================================================
+//  SHADERS
+// ============================================================
+const shaderSource = {
+  vertex: `#version 300 es
+precision highp float;
+uniform mat4 u_modelViewMatrix, u_projectionMatrix;
+uniform float u_k, u_p, u_m, u_S_seed;
+uniform vec2  u_cameraPos;
+uniform float u_chunkSize, u_gridSize;
+out highp vec2 v_uv;
+out highp vec3 v_worldPos, v_normal;
+${terrainGLSL}
+const int VERTS_PER_COLUMN = 30;
+void main() {
+    if (u_mode > 1.5) {
+        int gridSize = int(u_gridSize);
+        int columnID = gl_VertexID / VERTS_PER_COLUMN;
+        int localID  = gl_VertexID % VERTS_PER_COLUMN;
+        int cx = columnID / gridSize;
+        int cz = columnID % gridSize;
+        float B = u_blockSize;
+        float H = 0.5 * B;
+        vec2 camBlock = u_cameraPos / B;
+        vec2 origin = floor(camBlock) - vec2(float(gridSize) * 0.5);
+        vec2 bp = origin + vec2(float(cx), float(cz));
+        vec2 c  = (bp + 0.5) * B;
+        float hSelf = block_height(c, u_k, u_p, u_m, u_S_seed);
+        float texScale = B * 2.0;
+        vec3 pos; vec2 uv; vec3 nrm;
+        if (localID < 6) {
+            vec2 o;
+            if (localID == 0) o = vec2(-H,-H);
+            else if (localID == 1) o = vec2(H,-H);
+            else if (localID == 2) o = vec2(H,H);
+            else if (localID == 3) o = vec2(-H,-H);
+            else if (localID == 4) o = vec2(H,H);
+            else o = vec2(-H,H);
+            pos = vec3(c.x + o.x, hSelf, c.y + o.y);
+            uv  = vec2(pos.x, pos.z) / texScale;
+            nrm = vec3(0.0, 1.0, 0.0);
+        } else {
+            int faceID = (localID - 6) / 6;
+            int vid    = (localID - 6) - faceID * 6;
+            vec2 nOff;
+            if (faceID == 0) nOff = vec2(B,0);
+            else if (faceID == 1) nOff = vec2(-B,0);
+            else if (faceID == 2) nOff = vec2(0,B);
+            else nOff = vec2(0,-B);
+            float hN = block_height(c + nOff, u_k, u_p, u_m, u_S_seed);
+            float y0 = hN, y1 = hSelf;
+            vec3 BL, BR, TR, TL;
+            if (faceID == 0) { BL = vec3(c.x+H,y0,c.y+H); BR = vec3(c.x+H,y0,c.y-H); TR = vec3(c.x+H,y1,c.y-H); TL = vec3(c.x+H,y1,c.y+H); }
+            else if (faceID == 1) { BL = vec3(c.x-H,y0,c.y-H); BR = vec3(c.x-H,y0,c.y+H); TR = vec3(c.x-H,y1,c.y+H); TL = vec3(c.x-H,y1,c.y-H); }
+            else if (faceID == 2) { BL = vec3(c.x-H,y0,c.y+H); BR = vec3(c.x+H,y0,c.y+H); TR = vec3(c.x+H,y1,c.y+H); TL = vec3(c.x-H,y1,c.y+H); }
+            else { BL = vec3(c.x+H,y0,c.y-H); BR = vec3(c.x-H,y0,c.y-H); TR = vec3(c.x-H,y1,c.y-H); TL = vec3(c.x+H,y1,c.y-H); }
+            vec3 v;
+            if (vid == 0) v = BL; else if (vid == 1) v = TL; else if (vid == 2) v = TR;
+            else if (vid == 3) v = BL; else if (vid == 4) v = TR; else v = BR;
+            if (hN >= hSelf - 0.001) v = vec3(c.x, hSelf, c.y);
+            pos = v;
+            if (faceID == 0) nrm = vec3(1,0,0);
+            else if (faceID == 1) nrm = vec3(-1,0,0);
+            else if (faceID == 2) nrm = vec3(0,0,1);
+            else nrm = vec3(0,0,-1);
+            if (faceID == 0 || faceID == 1) uv = vec2(pos.z, pos.y) / texScale;
+            else uv = vec2(pos.x, pos.y) / texScale;
+        }
+        v_uv = uv; v_worldPos = pos; v_normal = nrm;
+        gl_Position = u_projectionMatrix * u_modelViewMatrix * vec4(pos, 1.0);
+        return;
+    }
+    int quadID = gl_VertexID / 6;
+    int x_cell = quadID / 2000;
+    int z_cell = quadID % 2000;
+    int vid = gl_VertexID % 6;
+    vec2 offset;
+    if (vid == 0) offset = vec2(0,0);
+    else if (vid == 1) offset = vec2(1,0);
+    else if (vid == 2) offset = vec2(1,1);
+    else if (vid == 3) offset = vec2(0,0);
+    else if (vid == 4) offset = vec2(1,1);
+    else offset = vec2(0,1);
+    vec2 gridPos = vec2(float(x_cell), float(z_cell)) + offset;
+    vec2 chunkIndex = floor(u_cameraPos / u_chunkSize);
+    vec2 fractional = fract(u_cameraPos / u_chunkSize);
+    vec2 offsetPos = (fractional - 0.5) * u_chunkSize;
+    vec2 chunkOffset = chunkIndex * u_chunkSize;
+    vec2 worldPos = gridPos + offsetPos + chunkOffset;
+    float height = terrain_height(worldPos, u_k, u_p, u_m, u_S_seed);
+    vec3 pos = vec3(worldPos.x, height, worldPos.y);
+    float eps = max(0.5, u_blockSize * 0.5);
+    float hL = terrain_height(worldPos - vec2(eps,0), u_k, u_p, u_m, u_S_seed);
+    float hR = terrain_height(worldPos + vec2(eps,0), u_k, u_p, u_m, u_S_seed);
+    float hD = terrain_height(worldPos - vec2(0,eps), u_k, u_p, u_m, u_S_seed);
+    float hU = terrain_height(worldPos + vec2(0,eps), u_k, u_p, u_m, u_S_seed);
+    v_normal = normalize(vec3(hL - hR, 2.0 * eps, hD - hU));
+    v_uv = worldPos / 1.1;
+    v_worldPos = pos;
+    gl_Position = u_projectionMatrix * u_modelViewMatrix * vec4(pos, 1.0);
+}
+`,
+  fragment: `#version 300 es
+precision highp float;
+in highp vec2 v_uv;
+in highp vec3 v_worldPos, v_normal;
+uniform sampler2D u_texture;
+uniform vec3 u_cameraPosition, u_fogColor, u_sunDir;
+uniform float u_fogDensity;
+out vec4 outColor;
+${biomeGLSL}
+void main() {
+    vec4 tex = texture(u_texture, v_uv);
+    vec3 N = normalize(v_normal);
+    vec3 L = normalize(u_sunDir);
+    float ndl = max(dot(N, L), 0.0);
+    vec3 color = tex.rgb * (0.42 + 0.58 * ndl);
+    color *= biome_tint(v_worldPos.xz, v_worldPos.y);
+    float dist = length(v_worldPos - u_cameraPosition);
+    float fog = clamp(1.0 - exp(-dist * u_fogDensity), 0.0, 1.0);
+    color = mix(color, u_fogColor, fog);
+    outColor = vec4(color, 1.0);
+}
+`,
+};
+
+// ============================================================
+//  PROBE SHADER
+// ============================================================
+const probeVertexSource = `#version 300 es
+precision highp float;
+uniform vec2 u_probeOrigin;
+uniform float u_probeCell;
+uniform int u_probeN;
+uniform float u_k, u_p, u_m, u_S_seed;
+out float v_height;
+${terrainGLSL}
+void main() {
+    int n = u_probeN;
+    int id = gl_VertexID;
+    int ix = id % n;
+    int iz = id / n;
+    vec2 wp = u_probeOrigin + vec2(float(ix), float(iz)) * u_probeCell;
+    v_height = terrain_height_mode(wp, u_k, u_p, u_m, u_S_seed);
+    float fx = (float(ix) + 0.5) / float(n);
+    float fz = (float(iz) + 0.5) / float(n);
+    gl_Position = vec4(fx * 2.0 - 1.0, fz * 2.0 - 1.0, 0.0, 1.0);
+    gl_PointSize = 1.0;
+}
+`;
+const probeFragmentSource = `#version 300 es
+precision highp float;
+in float v_height;
+out vec4 outColor;
+void main() { outColor = vec4(v_height, 0.0, 0.0, 1.0); }
+`;
+
+let cameraPos = [0.0, 0.0];
+
+function compileShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error('Shader compile failed:', gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader); return null;
+  }
+  return shader;
+}
+function linkProgram(vsSource, fsSource) {
+  const vs = compileShader(gl, gl.VERTEX_SHADER, vsSource);
+  const fs = compileShader(gl, gl.FRAGMENT_SHADER, fsSource);
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs); gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
+    console.error('Link failed:', gl.getProgramInfoLog(prog));
+  return prog;
+}
+
+const program = linkProgram(shaderSource.vertex, shaderSource.fragment);
+gl.useProgram(program);
+
+const projectionMatrix  = mat4.create();
+const uProjectionMatrix = gl.getUniformLocation(program, 'u_projectionMatrix');
+const uModelViewMatrix  = gl.getUniformLocation(program, 'u_modelViewMatrix');
+mat4.perspective(projectionMatrix, Math.PI / 4, canvas.width / canvas.height, 0.5, 250000);
+gl.uniformMatrix4fv(uProjectionMatrix, false, projectionMatrix);
+gl.uniformMatrix4fv(uModelViewMatrix, false, modelViewMatrix);
+
+const TERRAIN = { k: 10.0, p: 10.0, m: 10.0, seed: 1.36, chunkSize: 1000.0 };
+
+gl.uniform1f(gl.getUniformLocation(program, 'u_k'), TERRAIN.k);
+gl.uniform1f(gl.getUniformLocation(program, 'u_p'), TERRAIN.p);
+gl.uniform1f(gl.getUniformLocation(program, 'u_m'), TERRAIN.m);
+gl.uniform1f(gl.getUniformLocation(program, 'u_S_seed'), TERRAIN.seed);
+gl.uniform1f(gl.getUniformLocation(program, 'u_chunkSize'), TERRAIN.chunkSize);
+
+const uCameraPos      = gl.getUniformLocation(program, 'u_cameraPos');
+const uGridSize       = gl.getUniformLocation(program, 'u_gridSize');
+const uTexture        = gl.getUniformLocation(program, 'u_texture');
+const uCameraPosition = gl.getUniformLocation(program, 'u_cameraPosition');
+const uFogColor       = gl.getUniformLocation(program, 'u_fogColor');
+const uFogDensity     = gl.getUniformLocation(program, 'u_fogDensity');
+const uSunDir         = gl.getUniformLocation(program, 'u_sunDir');
+
+const FOG_DENSITY = 0.0012;
+gl.uniform1f(uFogDensity, FOG_DENSITY);
+gl.uniform3f(uSunDir, SUN_DIR[0], SUN_DIR[1], SUN_DIR[2]);
+gl.uniform3f(uFogColor, currentSky[0], currentSky[1], currentSky[2]);
+
+// ============================================================
+//  PROBE SETUP
+// ============================================================
+const floatExt = gl.getExtension('EXT_color_buffer_float');
+if (!floatExt) console.warn('EXT_color_buffer_float unavailable');
+
+const probeProgram = linkProgram(probeVertexSource, probeFragmentSource);
+const uProbeOrigin = gl.getUniformLocation(probeProgram, 'u_probeOrigin');
+const uProbeCell   = gl.getUniformLocation(probeProgram, 'u_probeCell');
+const uProbeN      = gl.getUniformLocation(probeProgram, 'u_probeN');
+
+// Cache terrain uniform locations for both programs so we can re-upload on change.
+const probeTerrainLocs = {
+  k:    gl.getUniformLocation(probeProgram, 'u_k'),
+  p:    gl.getUniformLocation(probeProgram, 'u_p'),
+  m:    gl.getUniformLocation(probeProgram, 'u_m'),
+  seed: gl.getUniformLocation(probeProgram, 'u_S_seed')
+};
+const mainTerrainLocs = {
+  k:    gl.getUniformLocation(program, 'u_k'),
+  p:    gl.getUniformLocation(program, 'u_p'),
+  m:    gl.getUniformLocation(program, 'u_m'),
+  seed: gl.getUniformLocation(program, 'u_S_seed')
+};
+
+function pushTerrainUniforms() {
+  gl.useProgram(program);
+  gl.uniform1f(mainTerrainLocs.k,    TERRAIN.k);
+  gl.uniform1f(mainTerrainLocs.p,    TERRAIN.p);
+  gl.uniform1f(mainTerrainLocs.m,    TERRAIN.m);
+  gl.uniform1f(mainTerrainLocs.seed, TERRAIN.seed);
+  gl.useProgram(probeProgram);
+  gl.uniform1f(probeTerrainLocs.k,    TERRAIN.k);
+  gl.uniform1f(probeTerrainLocs.p,    TERRAIN.p);
+  gl.uniform1f(probeTerrainLocs.m,    TERRAIN.m);
+  gl.uniform1f(probeTerrainLocs.seed, TERRAIN.seed);
+  gl.useProgram(program);
+}
+pushTerrainUniforms();
+
+const HMAP_N = 256;
+const HMAP_WORLD = 384.0;
+const HMAP_CELL = HMAP_WORLD / HMAP_N;
+const hmapData = new Float32Array(HMAP_N * HMAP_N * 4);
+let hmapOriginX = 0.0, hmapOriginZ = 0.0;
+
+const probeTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, probeTex);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, HMAP_N, HMAP_N, 0, gl.RGBA, gl.FLOAT, null);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+const probeFBO = gl.createFramebuffer();
+gl.bindFramebuffer(gl.FRAMEBUFFER, probeFBO);
+gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, probeTex, 0);
+gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+gl.useProgram(program);
+const probePixel = new Float32Array(4);
+
+const editLocs = new WeakMap();
+const editData = new Float32Array(MAX_EDITS * 4);
+function uploadEdits(prog) {
+  let loc = editLocs.get(prog);
+  if (!loc) {
+    loc = { arr: gl.getUniformLocation(prog, 'u_edits'),
+            count: gl.getUniformLocation(prog, 'u_editCount') };
+    editLocs.set(prog, loc);
+  }
+  editData.fill(0);
+  for (let n = 0; n < edits.length; n++) editData.set(edits[n], n * 4);
+  gl.uniform4fv(loc.arr, editData);
+  gl.uniform1i(loc.count, edits.length);
+}
+
+const terrainLocs = new WeakMap();
+function uploadTerrainState(prog, gridSize) {
+  let loc = terrainLocs.get(prog);
+  if (!loc) {
+    loc = { blocky: gl.getUniformLocation(prog, 'u_blocky'),
+            size:   gl.getUniformLocation(prog, 'u_blockSize'),
+            mode:   gl.getUniformLocation(prog, 'u_mode'),
+            grid:   gl.getUniformLocation(prog, 'u_gridSize') };
+    terrainLocs.set(prog, loc);
+  }
+  gl.uniform1f(loc.blocky, modeIndex === 1 ? 1.0 : 0.0);
+  gl.uniform1f(loc.size, blockSize);
+  gl.uniform1f(loc.mode, modeIndex);
+  if (loc.grid && gridSize !== undefined) gl.uniform1f(loc.grid, gridSize);
+}
+function blockGridSize() {
+  const desired = Math.round(1024.0 / blockSize);
+  return Math.max(64, Math.min(256, desired));
+}
+
+function terrainHeightAt(x, z) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, probeFBO);
+  gl.viewport(0, 0, HMAP_N, HMAP_N);
+  gl.useProgram(probeProgram);
+  uploadEdits(probeProgram);
+  uploadTerrainState(probeProgram);
+  gl.uniform1i(uProbeN, 1);
+  gl.uniform2f(uProbeOrigin, x, z);
+  gl.uniform1f(uProbeCell, 1.0);
+  gl.bindVertexArray(null);
+  gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
+  gl.drawArrays(gl.POINTS, 0, 1);
+  gl.readPixels(HMAP_N >> 1, HMAP_N >> 1, 1, 1, gl.RGBA, gl.FLOAT, probePixel);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+  gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
+  gl.useProgram(program);
+  return probePixel[0];
+}
+
+function updateHeightmap() {
+  hmapOriginX = targetPosition[0] - HMAP_WORLD * 0.5;
+  hmapOriginZ = targetPosition[2] - HMAP_WORLD * 0.5;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, probeFBO);
+  gl.viewport(0, 0, HMAP_N, HMAP_N);
+  gl.useProgram(probeProgram);
+  uploadEdits(probeProgram);
+  uploadTerrainState(probeProgram);
+  gl.uniform1i(uProbeN, HMAP_N);
+  gl.uniform2f(uProbeOrigin, hmapOriginX, hmapOriginZ);
+  gl.uniform1f(uProbeCell, HMAP_CELL);
+  gl.bindVertexArray(null);
+  gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
+  gl.drawArrays(gl.POINTS, 0, HMAP_N * HMAP_N);
+  gl.readPixels(0, 0, HMAP_N, HMAP_N, gl.RGBA, gl.FLOAT, hmapData);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+  gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
+  gl.useProgram(program);
+}
+
+function cachedHeightAt(x, z) {
+  if (modeIndex === 1 || modeIndex === 2) {
+    const B = blockSize;
+    x = (Math.floor(x / B) + 0.5) * B;
+    z = (Math.floor(z / B) + 0.5) * B;
+  }
+  const fx = (x - hmapOriginX) / HMAP_CELL;
+  const fz = (z - hmapOriginZ) / HMAP_CELL;
+  let ix = Math.floor(fx), iz = Math.floor(fz);
+  let tx = fx - ix, tz = fz - iz;
+  if (ix < 0) { ix = 0; tx = 0; }
+  if (iz < 0) { iz = 0; tz = 0; }
+  if (ix > HMAP_N - 2) { ix = HMAP_N - 2; tx = 1; }
+  if (iz > HMAP_N - 2) { iz = HMAP_N - 2; tz = 1; }
+  const i00 = (iz * HMAP_N + ix) * 4;
+  const i10 = i00 + 4;
+  const i01 = i00 + HMAP_N * 4;
+  const i11 = i01 + 4;
+  const h0 = hmapData[i00] * (1 - tx) + hmapData[i10] * tx;
+  const h1 = hmapData[i01] * (1 - tx) + hmapData[i11] * tx;
+  return h0 * (1 - tz) + h1 * tz;
+}
+
+function bnoise(x, y) {
+  return Math.sin(x * 0.0125) * Math.cos(y * 0.0107)
+       + 0.5  * Math.sin(x * 0.0310 + 1.7) * Math.cos(y * 0.0265 - 0.9)
+       + 0.25 * Math.sin(x * 0.0710 + 4.1) * Math.cos(y * 0.0663 + 2.2);
+}
+function smoothstepJS(e0, e1, x) {
+  let t = (x - e0) / (e1 - e0);
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  return t * t * (3 - 2 * t);
+}
+function biomeWeights(x, z) {
+  const t = bnoise(x + 1234.5, z + 567.8);
+  const m = bnoise(x * 1.3 - 987.6, z * 1.3 + 321.4);
+  const snow   = 1 - smoothstepJS(-0.45, -0.05, t);
+  const desert = smoothstepJS(0.10, 0.50, t) * (1 - smoothstepJS(-0.25, 0.10, m));
+  const forest = smoothstepJS(0.05, 0.45, m);
+  const plains = 1.0;
+  const sum = snow + desert + forest + plains;
+  return [plains / sum, forest / sum, desert / sum, snow / sum];
+}
+
+// ============================================================
+//  MOBS
+// ============================================================
+const mobs = [];
+const MAX_MOBS = 28;
+const PLAYER_RADIUS = 0.5;
+const DESPAWN_DIST = 145;
+const MOB_MAX_BOXES = 8;
+const VERTS_PER_BOX = 36;
+const FLOATS_PER_VERT = 9;
+let nextMobId = 1;
+
+const ANIMAL_SKINS = [
+  { body: [0.93, 0.93, 0.91], head: [0.84, 0.81, 0.76] },
+  { body: [0.56, 0.38, 0.24], head: [0.44, 0.29, 0.18] },
+  { body: [0.93, 0.62, 0.66], head: [0.88, 0.53, 0.57] },
+];
+
+const BOX_FACES = [
+  [ 1, 0, 0,   1,-1,-1,  1,-1, 1,  1, 1, 1,   1,-1,-1,  1, 1, 1,  1, 1,-1],
+  [-1, 0, 0,  -1,-1, 1, -1,-1,-1, -1, 1,-1,  -1,-1, 1, -1, 1,-1, -1, 1, 1],
+  [ 0, 1, 0,  -1, 1,-1,  1, 1,-1,  1, 1, 1,  -1, 1,-1,  1, 1, 1, -1, 1, 1],
+  [ 0,-1, 0,  -1,-1, 1,  1,-1, 1,  1,-1,-1,  -1,-1, 1,  1,-1,-1, -1,-1,-1],
+  [ 0, 0, 1,  -1,-1, 1,  1,-1, 1,  1, 1, 1,  -1,-1, 1,  1, 1, 1, -1, 1, 1],
+  [ 0, 0,-1,   1,-1,-1, -1,-1,-1, -1, 1,-1,   1,-1,-1, -1, 1,-1,  1, 1,-1],
+];
+
+let spawnTimer = 1.0;
+
+function spawnMob() {
+  const ang = Math.random() * Math.PI * 2;
+  const rad = 38 + Math.random() * 48;
+  const x = targetPosition[0] + Math.cos(ang) * rad;
+  const z = targetPosition[2] + Math.sin(ang) * rad;
+
+  const w = biomeWeights(x, z);
+  let zW = 0, aW = 0;
+  for (let i = 0; i < BIOMES.length; i++) {
+    zW += w[i] * BIOMES[i].zombie;
+    aW += w[i] * BIOMES[i].animal;
+  }
+  const isZombie = Math.random() < zW / (zW + aW);
+  const groundY = cachedHeightAt(x, z);
+
+  if (isZombie) {
+    mobs.push({
+      id: nextMobId++, type: 'zombie', skin: 0, flying: false,
+      x, y: groundY + 0.15, z, vx: 0, vy: 0, vz: 0,
+      yaw: Math.random() * Math.PI * 2,
+      targetX: x, targetY: groundY + 0.15, targetZ: z, targetYaw: 0,
+      radius: 0.45, speed: 1.1, chase: 3.6,
+      wanderTimer: Math.random() * 3,
+      wanderAngle: Math.random() * Math.PI * 2,
+      wanderSpeed: 0, walkPhase: Math.random() * 6.28,
+      hoverHeight: 0, hoverPhase: 0
+    });
+  } else {
+    const flying = Math.random() < 0.30;
+    mobs.push({
+      id: nextMobId++, type: 'animal',
+      skin: Math.floor(Math.random() * ANIMAL_SKINS.length),
+      flying, x, z,
+      y: flying ? groundY + 12 + Math.random() * 8 : groundY + 0.15,
+      vx: 0, vy: 0, vz: 0,
+      yaw: Math.random() * Math.PI * 2,
+      targetX: x, targetY: groundY + 0.15, targetZ: z, targetYaw: 0,
+      radius: 0.62,
+      speed: flying ? 2.2 : 1.5,
+      chase: flying ? 5.0 : 4.2,
+      wanderTimer: Math.random() * 3,
+      wanderAngle: Math.random() * Math.PI * 2,
+      wanderSpeed: 0, walkPhase: Math.random() * 6.28,
+      hoverHeight: 10 + Math.random() * 8,
+      hoverPhase: Math.random() * Math.PI * 2
+    });
+  }
+}
+
+function updateSpawning(dt) {
+  spawnTimer -= dt;
+  if (spawnTimer > 0) return;
+  spawnTimer = 0.8;
+  if (mobs.length >= MAX_MOBS) return;
+  spawnMob();
+}
+
+function updateMobs(dt) {
+  const px = targetPosition[0], pz = targetPosition[2];
+  for (let i = mobs.length - 1; i >= 0; i--) {
+    const m = mobs[i];
+    let dx = px - m.x, dz = pz - m.z;
+    let dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist > DESPAWN_DIST) { mobs.splice(i, 1); continue; }
+    if (dist < 1e-4) dist = 1e-4;
+
+    m.wanderTimer -= dt;
+    if (m.wanderTimer <= 0) {
+      m.wanderTimer = 2 + Math.random() * 4;
+      m.wanderAngle = Math.random() * Math.PI * 2;
+      m.wanderSpeed = Math.random() < 0.35 ? 0 : 1;
+    }
+
+    let wantX = 0, wantZ = 0;
+    if (m.type === 'zombie') {
+      if (dist < 30) { wantX = (dx/dist) * m.chase; wantZ = (dz/dist) * m.chase; }
+      else if (m.wanderSpeed > 0) { wantX = Math.cos(m.wanderAngle)*m.speed; wantZ = Math.sin(m.wanderAngle)*m.speed; }
+    } else {
+      if (dist < 10) { wantX = -(dx/dist) * m.chase; wantZ = -(dz/dist) * m.chase; }
+      else if (m.wanderSpeed > 0) { wantX = Math.cos(m.wanderAngle)*m.speed; wantZ = Math.sin(m.wanderAngle)*m.speed; }
+    }
+
+    const accel = 1 - Math.exp(-dt * 6);
+    m.vx += (wantX - m.vx) * accel;
+    m.vz += (wantZ - m.vz) * accel;
+    m.x += m.vx * dt;
+    m.z += m.vz * dt;
+
+    if (m.flying) {
+      const groundY = cachedHeightAt(m.x, m.z);
+      m.hoverPhase += dt;
+      const targetY = groundY + m.hoverHeight + Math.sin(m.hoverPhase * 0.9) * 1.6;
+      m.y += (targetY - m.y) * (1 - Math.exp(-dt * 3.5));
+      m.vy = 0;
+    } else {
+      m.vy += GRAVITY * dt;
+      m.y += m.vy * dt;
+      const gy = cachedHeightAt(m.x, m.z);
+      if (m.y <= gy) { m.y = gy; m.vy = 0; }
+    }
+
+    const sp = Math.sqrt(m.vx * m.vx + m.vz * m.vz);
+    if (sp > 0.12) { m.yaw = Math.atan2(m.vx, -m.vz); m.walkPhase += dt * sp * 3.2; }
+    else m.walkPhase += dt * 0.8;
+  }
+
+  for (let i = 0; i < mobs.length; i++) {
+    const a = mobs[i];
+    for (let j = i + 1; j < mobs.length; j++) {
+      const b = mobs[j];
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const rr = a.radius + b.radius;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < rr * rr && d2 > 1e-6) {
+        const d = Math.sqrt(d2);
+        const push = (rr - d) * 0.5;
+        const ux = dx / d, uz = dz / d;
+        a.x -= ux * push; a.z -= uz * push;
+        b.x += ux * push; b.z += uz * push;
+      }
+    }
+  }
+}
+
+function collidePlayerWithMobs() {
+  for (let i = 0; i < mobs.length; i++) {
+    const m = mobs[i];
+    const dx = targetPosition[0] - m.x;
+    const dz = targetPosition[2] - m.z;
+    const dy = targetPosition[1] - m.y;
+    const rr = m.radius + PLAYER_RADIUS;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < rr * rr && Math.abs(dy) < 2.5) {
+      let d = Math.sqrt(d2);
+      if (d < 1e-4) d = 1e-4;
+      const ux = dx / d, uz = dz / d;
+      const push = rr - d;
+      targetPosition[0] += ux * push * 0.65;
+      targetPosition[2] += uz * push * 0.65;
+      m.x -= ux * push * 0.35;
+      m.z -= uz * push * 0.35;
+      if (!m.flying) m.y = Math.max(m.y, cachedHeightAt(m.x, m.z));
+    }
+  }
+}
+
+// ============================================================
+//  MOB GEOMETRY
+// ============================================================
+function pushRotBox(out, k, mx, my, mz, cos, sin, ox, oy, oz, hx, hy, hz, r, g, b) {
+  const cx = mx + ox * cos - oz * sin;
+  const cy = my + oy;
+  const cz = mz + ox * sin + oz * cos;
+  for (let fi = 0; fi < 6; fi++) {
+    const f = BOX_FACES[fi];
+    const nx = f[0], ny = f[1], nz = f[2];
+    const rnx = nx * cos - nz * sin;
+    const rnz = nx * sin + nz * cos;
+    for (let vi = 0; vi < 6; vi++) {
+      const b3 = 3 + vi * 3;
+      const vx = f[b3] * hx, vy = f[b3 + 1] * hy, vz = f[b3 + 2] * hz;
+      out[k++] = cx + vx * cos - vz * sin;
+      out[k++] = cy + vy;
+      out[k++] = cz + vx * sin + vz * cos;
+      out[k++] = rnx; out[k++] = ny; out[k++] = rnz;
+      out[k++] = r; out[k++] = g; out[k++] = b;
+    }
+  }
+  return k;
+}
+
+function appendMob(out, k, m) {
+  const cos = Math.cos(m.yaw), sin = Math.sin(m.yaw);
+  const swing = Math.sin(m.walkPhase) * 0.22;
+  if (m.type === 'zombie') {
+    const skin = [0.30, 0.62, 0.34];
+    const shirt = [0.18, 0.45, 0.52];
+    const pants = [0.14, 0.18, 0.34];
+    k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin, -0.15, 0.34,  swing, 0.13, 0.34, 0.13, pants[0], pants[1], pants[2]);
+    k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin,  0.15, 0.34, -swing, 0.13, 0.34, 0.13, pants[0], pants[1], pants[2]);
+    k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin,  0, 1.10, 0, 0.30, 0.44, 0.17, shirt[0], shirt[1], shirt[2]);
+    k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin, -0.38, 1.25, -0.30, 0.10, 0.10, 0.38, skin[0], skin[1], skin[2]);
+    k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin,  0.38, 1.25, -0.30, 0.10, 0.10, 0.38, skin[0], skin[1], skin[2]);
+    k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin,  0, 1.75, 0, 0.26, 0.26, 0.26, skin[0], skin[1], skin[2]);
+  } else {
+    const s = ANIMAL_SKINS[m.skin];
+    const b = s.body, h = s.head, lb = 0.7;
+    if (m.flying) {
+      const flap = Math.sin(m.walkPhase * 2.0) * 0.25;
+      const wingSpan = 0.9;
+      k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin, 0, 0.85, 0, 0.28, 0.22, 0.55, b[0], b[1], b[2]);
+      k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin, 0, 1.00, -0.72, 0.20, 0.20, 0.20, h[0], h[1], h[2]);
+      k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin, -wingSpan*0.75, 0.95+flap, 0, wingSpan*0.5, 0.04, 0.35, h[0]*0.9, h[1]*0.9, h[2]*0.9);
+      k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin,  wingSpan*0.75, 0.95-flap, 0, wingSpan*0.5, 0.04, 0.35, h[0]*0.9, h[1]*0.9, h[2]*0.9);
+    } else {
+      k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin, -0.22, 0.28,  swing+0.38, 0.09, 0.28, 0.09, b[0]*lb, b[1]*lb, b[2]*lb);
+      k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin,  0.22, 0.28, -swing+0.38, 0.09, 0.28, 0.09, b[0]*lb, b[1]*lb, b[2]*lb);
+      k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin, -0.22, 0.28, -swing-0.38, 0.09, 0.28, 0.09, b[0]*lb, b[1]*lb, b[2]*lb);
+      k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin,  0.22, 0.28,  swing-0.38, 0.09, 0.28, 0.09, b[0]*lb, b[1]*lb, b[2]*lb);
+      k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin,  0, 0.82, 0, 0.32, 0.28, 0.55, b[0], b[1], b[2]);
+      k = pushRotBox(out, k, m.x, m.y, m.z, cos, sin,  0, 0.95, -0.72, 0.22, 0.22, 0.22, h[0], h[1], h[2]);
+    }
+  }
+  return k;
+}
+
+// Add a remote player (simple 2-box avatar)
+function appendRemotePlayer(out, k, rp) {
+  const cos = Math.cos(rp.yaw || 0), sin = Math.sin(rp.yaw || 0);
+  const c = rp.color || [0.8, 0.4, 0.9];
+  k = pushRotBox(out, k, rp.x, rp.y, rp.z, cos, sin, 0, 0.9, 0, 0.35, 0.9, 0.35, c[0], c[1], c[2]);
+  k = pushRotBox(out, k, rp.x, rp.y, rp.z, cos, sin, 0, 2.05, 0, 0.28, 0.28, 0.28,
+    c[0]*0.85 + 0.15, c[1]*0.85 + 0.15, c[2]*0.85 + 0.15);
+  return k;
+}
+
+const mobVertexData = new Float32Array(
+  (MAX_MOBS * MOB_MAX_BOXES + 16 * 2) * VERTS_PER_BOX * FLOATS_PER_VERT
+);
+const mobVBO = gl.createBuffer();
+const mobVAO = gl.createVertexArray();
+gl.bindVertexArray(mobVAO);
+gl.bindBuffer(gl.ARRAY_BUFFER, mobVBO);
+gl.bufferData(gl.ARRAY_BUFFER, mobVertexData.byteLength, gl.DYNAMIC_DRAW);
+const MOB_STRIDE = FLOATS_PER_VERT * 4;
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, MOB_STRIDE, 0);
+gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, MOB_STRIDE, 12);
+gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, MOB_STRIDE, 24);
+gl.bindVertexArray(null);
+
+const mobProgram = linkProgram(`#version 300 es
+precision highp float;
+layout(location = 0) in vec3 a_position;
+layout(location = 1) in vec3 a_normal;
+layout(location = 2) in vec3 a_color;
+uniform mat4 u_projectionMatrix, u_modelViewMatrix;
+out vec3 v_normal, v_color, v_worldPos;
+void main() {
+    v_normal = a_normal; v_color = a_color; v_worldPos = a_position;
+    gl_Position = u_projectionMatrix * u_modelViewMatrix * vec4(a_position, 1.0);
+}
+`, `#version 300 es
+precision highp float;
+in vec3 v_normal, v_color, v_worldPos;
+uniform vec3 u_sunDir, u_cameraPosition, u_fogColor;
+uniform float u_fogDensity;
+out vec4 outColor;
+void main() {
+    vec3 N = normalize(v_normal);
+    vec3 L = normalize(u_sunDir);
+    float ndl = max(dot(N, L), 0.0);
+    vec3 color = v_color * (0.45 + 0.55 * ndl);
+    float dist = length(v_worldPos - u_cameraPosition);
+    float fog = clamp(1.0 - exp(-dist * u_fogDensity), 0.0, 1.0);
+    color = mix(color, u_fogColor, fog);
+    outColor = vec4(color, 1.0);
+}
+`);
+
+const mobUProj = gl.getUniformLocation(mobProgram, 'u_projectionMatrix');
+const mobUMV   = gl.getUniformLocation(mobProgram, 'u_modelViewMatrix');
+const mobUSun  = gl.getUniformLocation(mobProgram, 'u_sunDir');
+const mobUCam  = gl.getUniformLocation(mobProgram, 'u_cameraPosition');
+const mobUFog  = gl.getUniformLocation(mobProgram, 'u_fogColor');
+const mobUFogD = gl.getUniformLocation(mobProgram, 'u_fogDensity');
+
+function drawMobs() {
+  let k = 0;
+  for (let i = 0; i < mobs.length; i++) k = appendMob(mobVertexData, k, mobs[i]);
+
+  if (typeof remotePlayers !== "undefined") {
+    const ids = Object.keys(remotePlayers);
+    for (let i = 0; i < ids.length && i < 16; i++) {
+      const rp = remotePlayers[ids[i]];
+      if (rp) k = appendRemotePlayer(mobVertexData, k, rp);
+    }
+  }
+
+  if (k === 0) return;
+
+  gl.useProgram(mobProgram);
+  gl.bindVertexArray(mobVAO);
+  gl.bindBuffer(gl.ARRAY_BUFFER, mobVBO);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, mobVertexData, 0, k);
+
+  gl.uniformMatrix4fv(mobUProj, false, projectionMatrix);
+  gl.uniformMatrix4fv(mobUMV, false, modelViewMatrix);
+  gl.uniform3f(mobUSun, SUN_DIR[0], SUN_DIR[1], SUN_DIR[2]);
+  gl.uniform3f(mobUCam, position[0], position[1], position[2]);
+  gl.uniform3f(mobUFog, currentSky[0], currentSky[1], currentSky[2]);
+  gl.uniform1f(mobUFogD, FOG_DENSITY);
+
+  gl.disable(gl.CULL_FACE);
+  gl.drawArrays(gl.TRIANGLES, 0, k / FLOATS_PER_VERT);
+  gl.enable(gl.CULL_FACE);
+
+  gl.bindVertexArray(null);
+  gl.useProgram(program);
+}
+
+function updateAtmosphere(dt) {
+  const w = biomeWeights(targetPosition[0], targetPosition[2]);
+  let r = 0, g = 0, b = 0, best = -1, bestI = 0;
+  for (let i = 0; i < BIOMES.length; i++) {
+    r += w[i] * BIOMES[i].sky[0];
+    g += w[i] * BIOMES[i].sky[1];
+    b += w[i] * BIOMES[i].sky[2];
+    if (w[i] > best) { best = w[i]; bestI = i; }
+  }
+  currentBiomeName = BIOMES[bestI].name;
+  const k = 1 - Math.exp(-dt * 1.6);
+  currentSky[0] += (r - currentSky[0]) * k;
+  currentSky[1] += (g - currentSky[1]) * k;
+  currentSky[2] += (b - currentSky[2]) * k;
+  gl.clearColor(currentSky[0], currentSky[1], currentSky[2], 1.0);
+}
+
+gl.clearColor(currentSky[0], currentSky[1], currentSky[2], 1.0);
+gl.enable(gl.DEPTH_TEST);
+gl.enable(gl.CULL_FACE);
+gl.cullFace(gl.BACK);
+gl.frontFace(gl.CW);
+
+// ============================================================
+//  TEXTURE
+// ============================================================
+const anisoExt =
+  gl.getExtension('EXT_texture_filter_anisotropic') ||
+  gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic') ||
+  gl.getExtension('MOZ_EXT_texture_filter_anisotropic');
+let maxAniso = 1;
+if (anisoExt) maxAniso = gl.getParameter(anisoExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+
+const texture = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, texture);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+if (anisoExt) gl.texParameterf(gl.TEXTURE_2D, anisoExt.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(16, maxAniso));
+
+// Fallback checker texture in case the remote image fails.
+function makeFallbackTex() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#4a8a4a'; ctx.fillRect(0, 0, 64, 64);
+  ctx.fillStyle = '#3a6f3a';
+  for (let y = 0; y < 64; y += 8)
+    for (let x = 0; x < 64; x += 8)
+      if (((x/8)+(y/8)) % 2 === 0) ctx.fillRect(x, y, 8, 8);
+  return c;
+}
+
+let started = false;
+function startOnce() { if (!started) { started = true; requestAnimationFrame(animate); } }
+
+const image = new Image();
+image.crossOrigin = "anonymous";
+image.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQBMrrvba0q5n14_lemrp2lSPv4XqAjVkIJylaUj-DOLJl5PyCwAVU-sZ14Y_oZVmEUCLs&usqp=CAU';
+image.onload = () => {
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.disable(gl.BLEND);
+  startOnce();
+};
+image.onerror = () => {
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, makeFallbackTex());
+  gl.disable(gl.BLEND);
+  startOnce();
+};
+
+gl.useProgram(program);
+gl.activeTexture(gl.TEXTURE0);
+gl.bindTexture(gl.TEXTURE_2D, texture);
+gl.uniform1i(uTexture, 0);
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('mousedown', function(event) {
+  if (document.pointerLockElement !== canvas) return;
+  const dist = 20.0;
+  const x = position[0] + Math.sin(mouseX) * dist;
+  const z = position[2] - Math.cos(mouseX) * dist;
+  edits.push([x, z, 50.0, event.button === 2 ? -10.0 : 10.0]);
+  if (edits.length > MAX_EDITS) edits.shift();
+  if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast();
+});
+
+const fpsElement   = document.getElementById('fps');
+const modeElement  = document.getElementById('mode');
+const biomeElement = document.getElementById('biome');
+const netElement   = document.getElementById('net');
+const statusElement = document.getElementById('status');
+
+function updateModeLabel() {
+  modeElement.textContent = `Terrain: ${MODE_NAMES[modeIndex]}   block = ${blockSize.toFixed(0)}u`;
+}
+updateModeLabel();
+updateFlyLabel();
+
+// ============================================================
+//  ANIMATION
+// ============================================================
+let frameCount = 0, startTime = performance.now(), lastTime = performance.now();
+
+// Flag the mob host uses to decide whether to run the simulation.
+// Populated by the networking script below.
+let isMobHost = true;
+
+function animate() {
+  const now = performance.now();
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  handleKeyInput();
+  applyGravity(dt);
+  updateHeightmap();
+
+  // Mob simulation only runs on the host.
+  if (isMobHost) {
+    updateMobs(dt);
+    updateSpawning(dt);
+  } else {
+    // Non-host: interpolate toward last received state.
+    for (let i = 0; i < mobs.length; i++) {
+      const m = mobs[i];
+      m.x   += (m.targetX - m.x)   * 0.2;
+      m.y   += (m.targetY - m.y)   * 0.2;
+      m.z   += (m.targetZ - m.z)   * 0.2;
+      let dy = m.targetYaw - m.yaw;
+      while (dy >  Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      m.yaw += dy * 0.2;
+    }
+  }
+
+  collidePlayerWithMobs();
+  updateAtmosphere(dt);
+
+  cameraPos[0] = position[0];
+  cameraPos[1] = position[2];
+
+  const gridSize = blockGridSize();
+  position = vec3.lerp([], position, targetPosition, 0.1);
+  mat4.lookAt(
+    modelViewMatrix,
+    [position[0], position[1], position[2]],
+    [position[0] + Math.sin(mouseX),
+     position[1] + Math.sin(mouseY),
+     position[2] - Math.cos(mouseX)],
+    [0, 1, 0]
+  );
+
+  gl.clearColor(currentSky[0], currentSky[1], currentSky[2], 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  gl.useProgram(program);
+  gl.bindVertexArray(null);
+  uploadEdits(program);
+  uploadTerrainState(program, gridSize);
+
+  gl.uniformMatrix4fv(uProjectionMatrix, false, projectionMatrix);
+  gl.uniformMatrix4fv(uModelViewMatrix, false, modelViewMatrix);
+  gl.uniform2f(uCameraPos, cameraPos[0], cameraPos[1]);
+  gl.uniform3f(uCameraPosition, position[0], position[1], position[2]);
+  gl.uniform3f(uFogColor, currentSky[0], currentSky[1], currentSky[2]);
+
+  if (modeIndex === 2) {
+    const columns = gridSize * gridSize;
+    gl.drawArrays(gl.TRIANGLES, 0, columns * 30);
+  } else {
+    gl.drawArrays(gl.TRIANGLES, 0, 10000000);
+  }
+
+  drawMobs();
+
+  // ---- network hooks ----
+  if (typeof updateRemotePlayers === 'function') updateRemotePlayers();
+  if (typeof sendPlayerState === 'function') sendPlayerState();
+  if (typeof flushWorldBroadcast === 'function') flushWorldBroadcast();
+  if (typeof hostMobTick === 'function') hostMobTick(now);
+
+  frameCount++;
+  if (now - startTime >= 1000) {
+    const fps = (frameCount / (now - startTime)) * 1000;
+    fpsElement.textContent = `FPS: ${fps.toFixed(2)}`;
+    frameCount = 0;
+    while (now - startTime >= 1000) startTime += 1000;
+  }
+
+  const flyers = mobs.filter(m => m.flying).length;
+  biomeElement.textContent = `Biome: ${currentBiomeName}   mobs: ${mobs.length} (flying: ${flyers})`;
+
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+
+// ============================================================
+//  EXPOSE GLOBALS FOR NETWORKING SCRIPT
+// ============================================================
+window.__game = {
+  TERRAIN, edits, MAX_EDITS,
+  get blockSize() { return blockSize; },
+  set blockSize(v) { blockSize = v; },
+  get modeIndex() { return modeIndex; },
+  set modeIndex(v) { modeIndex = v; updateModeLabel(); },
+  mobs, spawnMob,
+  pushTerrainUniforms,
+  updateModeLabel,
+  syncFromWorldState: function(packet) {
+    if (typeof packet.k    === 'number') TERRAIN.k    = packet.k;
+    if (typeof packet.p    === 'number') TERRAIN.p    = packet.p;
+    if (typeof packet.m    === 'number') TERRAIN.m    = packet.m;
+    if (typeof packet.seed === 'number') TERRAIN.seed = packet.seed;
+    if (typeof packet.blockSize === 'number') { blockSize = packet.blockSize; }
+    if (typeof packet.modeIndex === 'number') { modeIndex = packet.modeIndex; }
+    if (Array.isArray(packet.edits)) {
+      edits.length = 0;
+      for (const e of packet.edits) if (Array.isArray(e) && e.length === 4) edits.push(e.slice());
+      if (edits.length > MAX_EDITS) edits.splice(0, edits.length - MAX_EDITS);
+    }
+    pushTerrainUniforms();
+    updateModeLabel();
+  }
+};
+</script>
+
+<!-- ============================================================
+     MULTIPLAYER — WebRTC, deterministic initiator, mob host
+     ============================================================ -->
+<script>
+const SERVER =
+    "https://f0a27720-2b09-4917-b2a4-41cf0a5711b8-00-36wui2grhilpn.picard.replit.dev";
+const PASSWORD = "secret";
+
+const ID   = crypto.randomUUID();
+const NAME = "P" + ID.substring(0, 4);
+
+console.log("NET: id =", ID);
+
+const peers            = {};
+const channels         = {};
+const remotePlayers    = {};
+const pendingICE       = {};
+const peerIsInitiator  = {};
+const pingTimers       = {};
+
+const PING_INTERVAL_MS = 2000;
+
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" }
+  ]
+};
+
+// ============================================================
+//  DETERMINISTIC INITIATOR
+//  The peer with the SMALLER id always initiates. This makes
+//  simultaneous connects converge instead of deadlocking.
+// ============================================================
+function shouldInitiate(peerID) {
+  return ID < peerID;
+}
+
+// ============================================================
+//  HTTP SIGNALING
+// ============================================================
+async function sendSignal(type, peerID, data) {
+  try {
+    const r = await fetch(SERVER + "/signal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, from: ID, to: peerID, data })
+    });
+    if (!r.ok) console.error("signal POST", type, r.status);
+    return r.ok;
+  } catch (e) { console.error("signal POST err", e); return false; }
+}
+
+async function fetchPeerList() {
+  try {
+    const form = new FormData();
+    form.append("password", PASSWORD);
+    form.append("client_id", ID);
+    const r = await fetch(SERVER + "/exchange_ip", { method: "POST", body: form });
+    if (!r.ok) { console.error("exchange_ip", r.status); return []; }
+    const result = await r.json();
+    const ids = Array.isArray(result.peers) ? result.peers : Object.keys(result.peers || {});
+    return ids.filter(x => x !== ID);
+  } catch (e) { console.error("exchange_ip err", e); return []; }
+}
+
+// ============================================================
+//  CONNECT / REGISTER
+// ============================================================
+async function connectToPeer(peerID) {
+  if (peerID === ID || peers[peerID]) return;
+  if (!shouldInitiate(peerID)) return;   // smaller id initiates
+
+  console.log("initiating to", peerID);
+
+  const pc = new RTCPeerConnection(RTC_CONFIG);
+  peers[peerID] = pc;
+  pendingICE[peerID] = [];
+  peerIsInitiator[peerID] = true;
+
+  const dc = pc.createDataChannel("game", { ordered: true });
+  channels[peerID] = dc;
+  setupDataChannel(peerID, dc);
+
+  pc.onicecandidate = ev => { if (ev.candidate) sendSignal("ice", peerID, ev.candidate); };
+  pc.onconnectionstatechange = () => {
+    console.log("conn state", peerID, pc.connectionState);
+    if (pc.connectionState === "failed" || pc.connectionState === "closed")
+      removePeer(peerID);
+  };
+
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await sendSignal("offer", peerID, pc.localDescription);
+  } catch (e) { console.error("offer err", e); }
+}
+
+async function receiveOffer(msg) {
+  const peerID = msg.from;
+
+  // Simultaneous-connect race: whoever has the smaller id wins.
+  if (peers[peerID]) {
+    if (shouldInitiate(peerID)) {
+      // We are the initiator — ignore their offer.
+      console.log("ignoring offer (we initiate)", peerID);
+      return;
+    }
+    // We are not the initiator — accept theirs.
+    console.log("replacing our connection with incoming offer", peerID);
+    removePeer(peerID, /*keepChannel*/ false);
+  }
+
+  console.log("accepting offer from", peerID);
+  const pc = new RTCPeerConnection(RTC_CONFIG);
+  peers[peerID] = pc;
+  pendingICE[peerID] = [];
+  peerIsInitiator[peerID] = false;
+
+  pc.ondatachannel = ev => {
+    channels[peerID] = ev.channel;
+    setupDataChannel(peerID, ev.channel);
+  };
+  pc.onicecandidate = ev => { if (ev.candidate) sendSignal("ice", peerID, ev.candidate); };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed" || pc.connectionState === "closed")
+      removePeer(peerID);
+  };
+
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.data));
+    await flushPendingICE(peerID);
+    const ans = await pc.createAnswer();
+    await pc.setLocalDescription(ans);
+    await sendSignal("answer", peerID, pc.localDescription);
+  } catch (e) { console.error("offer handling err", e); }
+}
+
+async function receiveAnswer(msg) {
+  const peerID = msg.from;
+  const pc = peers[peerID];
+  if (!pc) return;
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.data));
+    await flushPendingICE(peerID);
+  } catch (e) { console.error("answer err", e); }
+}
+
+async function receiveICE(msg) {
+  const peerID = msg.from;
+  const pc = peers[peerID];
+  if (!pc) return;
+  if (!pc.remoteDescription) {
+    (pendingICE[peerID] = pendingICE[peerID] || []).push(msg.data);
+    return;
+  }
+  try { await pc.addIceCandidate(new RTCIceCandidate(msg.data)); }
+  catch (e) { console.error("ice err", e); }
+}
+
+async function flushPendingICE(peerID) {
+  const pc = peers[peerID];
+  if (!pc || !pc.remoteDescription) return;
+  const q = pendingICE[peerID]; if (!q) return;
+  while (q.length) {
+    const c = q.shift();
+    try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+  }
+}
+
+// ============================================================
+//  PEER LIFECYCLE
+// ============================================================
+function removePeer(peerID, keepChannel) {
+  console.log("remove peer", peerID);
+  stopPing(peerID);
+  if (!keepChannel && channels[peerID]) {
+    try { channels[peerID].close(); } catch (e) {}
+  }
+  if (peers[peerID]) { try { peers[peerID].close(); } catch (e) {} }
+  delete channels[peerID];
+  delete peers[peerID];
+  delete pendingICE[peerID];
+  delete peerIsInitiator[peerID];
+  delete remotePlayers[peerID];
+  reevaluateMobHost();
+}
+
+function setupDataChannel(peerID, channel) {
+  channel.onopen = () => {
+    console.log("channel OPEN", peerID);
+    statusElement.textContent = `peers: ${Object.keys(peers).length}`;
+
+    // If we're initiating, we are the mob authority for this connection —
+    // push the current world so the new peer sees the same terrain.
+    if (peerIsInitiator[peerID]) {
+      sendWorldStateTo(peerID);
+    }
+    startPing(peerID);
+    reevaluateMobHost();
+  };
+  channel.onclose = () => { console.log("channel close", peerID); stopPing(peerID); };
+  channel.onerror = e => console.error("channel err", peerID, e);
+  channel.onmessage = ev => handleChannelMessage(peerID, ev.data);
+}
+
+// ============================================================
+//  MOB HOST DETERMINATION
+//  We are the mob host if none of our connected peers has a
+//  smaller id. The smallest id in the mesh simulates mobs and
+//  broadcasts state; everyone else renders.
+// ============================================================
+function reevaluateMobHost() {
+  let host = true;
+  for (const pid in peers) {
+    if (pid < ID) { host = false; break; }
+  }
+  if (host !== isMobHost) {
+    console.log("mob host:", host);
+    isMobHost = host;
+    if (host) {
+      // Clear stale non-host mobs so the local sim starts fresh.
+      mobs.length = 0;
+      spawnTimer = 0;
+    }
+  }
+  updateNetLabel();
+}
+
+function updateNetLabel() {
+  const peerCount = Object.keys(peers).length;
+  netElement.textContent =
+    `NET: ${peerCount} peer${peerCount === 1 ? '' : 's'}   host: ${isMobHost ? 'YES' : 'no'}   id: ${ID.substring(0, 4)}`;
+}
+
+// ============================================================
+//  PING
+// ============================================================
+function startPing(peerID) {
+  stopPing(peerID);
+  pingTimers[peerID] = setInterval(() => {
+    const ch = channels[peerID];
+    if (!ch || ch.readyState !== "open") return;
+    try { ch.send(JSON.stringify({ type: "ping", id: ID, timestamp: Date.now() })); }
+    catch (e) {}
+  }, PING_INTERVAL_MS);
+}
+function stopPing(peerID) {
+  if (pingTimers[peerID]) { clearInterval(pingTimers[peerID]); delete pingTimers[peerID]; }
+}
+
+// ============================================================
+//  WORLD STATE SYNC
+// ============================================================
+function sendWorldStateTo(peerID) {
+  const ch = channels[peerID];
+  if (!ch || ch.readyState !== "open") return;
+  try {
+    ch.send(JSON.stringify({
+      type: "world",
+      k: TERRAIN.k, p: TERRAIN.p, m: TERRAIN.m, seed: TERRAIN.seed,
+      edits: edits.map(e => e.slice()),
+      blockSize: blockSize,
+      modeIndex: modeIndex
+    }));
+  } catch (e) {}
+}
+
+let worldBroadcastPending = false;
+function scheduleWorldBroadcast() { worldBroadcastPending = true; }
+function flushWorldBroadcast() {
+  if (!worldBroadcastPending) return;
+  worldBroadcastPending = false;
+  const packet = JSON.stringify({
+    type: "world",
+    k: TERRAIN.k, p: TERRAIN.p, m: TERRAIN.m, seed: TERRAIN.seed,
+    edits: edits.map(e => e.slice()),
+    blockSize: blockSize,
+    modeIndex: modeIndex
+  });
+  for (const pid in channels) {
+    const ch = channels[pid];
+    if (ch && ch.readyState === "open") { try { ch.send(packet); } catch (e) {} }
+  }
+}
+
+function applyWorldState(packet) {
+  window.__game.syncFromWorldState(packet);
+}
+
+// ============================================================
+//  MOB SYNC
+//  Host broadcasts every ~100ms. Non-host replaces/updates.
+// ============================================================
+let lastMobBroadcast = 0;
+const MOB_BROADCAST_INTERVAL = 100;   // ms
+
+function hostMobTick(now) {
+  if (!isMobHost) return;
+  if (now - lastMobBroadcast < MOB_BROADCAST_INTERVAL) return;
+  lastMobBroadcast = now;
+  if (Object.keys(channels).length === 0) return;
+
+  const list = mobs.map(m => ({
+    id: m.id, t: m.type, s: m.skin, f: m.flying ? 1 : 0,
+    x: +m.x.toFixed(2), y: +m.y.toFixed(2), z: +m.z.toFixed(2),
+    yaw: +m.yaw.toFixed(2), wp: +m.walkPhase.toFixed(2)
+  }));
+
+  const packet = JSON.stringify({ type: "mobs", list });
+  for (const pid in channels) {
+    const ch = channels[pid];
+    if (ch && ch.readyState === "open") { try { ch.send(packet); } catch (e) {} }
+  }
+}
+
+function applyMobSync(list) {
+  const incoming = new Map();
+  for (const m of list) incoming.set(m.id, m);
+
+  const next = [];
+  for (const m of mobs) {
+    const inc = incoming.get(m.id);
+    if (inc) {
+      m.targetX = inc.x;
+      m.targetY = inc.y;
+      m.targetZ = inc.z;
+      m.targetYaw = inc.yaw;
+      m.walkPhase = inc.wp;
+      m.flying = !!inc.f;
+      next.push(m);
+      incoming.delete(m.id);
+    }
+    // Mobs not in the incoming list have despawned — drop them.
+  }
+
+  // New mobs the host spawned
+  for (const inc of incoming.values()) {
+    const flying = !!inc.f;
+    next.push({
+      id: inc.id,
+      type: inc.t,
+      skin: inc.s,
+      flying,
+      x: inc.x, y: inc.y, z: inc.z,
+      targetX: inc.x, targetY: inc.y, targetZ: inc.z,
+      yaw: inc.yaw, targetYaw: inc.yaw,
+      walkPhase: inc.wp,
+      vx: 0, vy: 0, vz: 0,
+      radius: inc.t === 'zombie' ? 0.45 : 0.62,
+      speed: 0, chase: 0,
+      wanderTimer: 0, wanderAngle: 0, wanderSpeed: 0,
+      hoverHeight: 0, hoverPhase: 0
+    });
+  }
+
+  mobs.length = 0;
+  for (const m of next) mobs.push(m);
+}
+
+// ============================================================
+//  PLAYER STATE
+// ============================================================
+let lastPlayerSend = 0;
+function sendPlayerState() {
+  const now = performance.now();
+  if (now - lastPlayerSend < 50) return;
+  lastPlayerSend = now;
+  if (typeof position === "undefined") return;
+
+  const packet = JSON.stringify({
+    type: "player",
+    id: ID, name: NAME,
+    x: +position[0].toFixed(2),
+    y: +position[1].toFixed(2),
+    z: +position[2].toFixed(2),
+    yaw: +mouseX.toFixed(2)
+  });
+  for (const pid in channels) {
+    const ch = channels[pid];
+    if (ch && ch.readyState === "open") { try { ch.send(packet); } catch (e) {} }
+  }
+}
+
+function receivePlayerState(packet) {
+  if (packet.id === ID) return;
+  if (!remotePlayers[packet.id]) {
+    remotePlayers[packet.id] = {
+      id: packet.id,
+      name: packet.name,
+      x: packet.x, y: packet.y, z: packet.z, yaw: packet.yaw || 0,
+      targetX: packet.x, targetY: packet.y, targetZ: packet.z, targetYaw: packet.yaw || 0,
+      color: colorForId(packet.id)
+    };
+  } else {
+    const rp = remotePlayers[packet.id];
+    rp.name = packet.name || rp.name;
+    rp.targetX = packet.x; rp.targetY = packet.y; rp.targetZ = packet.z;
+    rp.targetYaw = packet.yaw || 0;
+  }
+}
+
+function updateRemotePlayers() {
+  for (const id in remotePlayers) {
+    const rp = remotePlayers[id];
+    rp.x += (rp.targetX - rp.x) * 0.2;
+    rp.y += (rp.targetY - rp.y) * 0.2;
+    rp.z += (rp.targetZ - rp.z) * 0.2;
+    let dy = rp.targetYaw - rp.yaw;
+    while (dy >  Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    rp.yaw += dy * 0.2;
+  }
+}
+
+function colorForId(id) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  const h = (hash % 360) / 360;
+  const a = 0.85 * Math.min(0.6, 1 - 0.6);
+  const f = n => {
+    const k = (n + h * 12) % 12;
+    return 0.6 - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return [f(0), f(8), f(4)];
+}
+
+// ============================================================
+//  MESSAGE DISPATCH
+// ============================================================
+function handleChannelMessage(peerID, raw) {
+  let p; try { p = JSON.parse(raw); } catch (e) { return; }
+  if (!p || typeof p !== "object") return;
+
+  if (p.type === "ping") {
+    const ch = channels[peerID];
+    if (ch && ch.readyState === "open") {
+      try { ch.send(JSON.stringify({ type: "pong", id: ID, timestamp: Date.now() })); } catch (e) {}
+    }
+    return;
+  }
+  if (p.type === "pong") return;
+  if (p.type === "player") { receivePlayerState(p); return; }
+  if (p.type === "world")  { applyWorldState(p); return; }
+  if (p.type === "mobs")   { if (!isMobHost) applyMobSync(p.list); return; }
+}
+
+// ============================================================
+//  SIGNAL POLL + HEARTBEAT
+// ============================================================
+async function pollSignals() {
+  try {
+    const r = await fetch(SERVER + "/signal?client_id=" + encodeURIComponent(ID));
+    if (!r.ok) return;
+    const result = await r.json();
+    const msgs = result.messages || [];
+    for (const m of msgs) {
+      if (m.type === "offer")       await receiveOffer(m);
+      else if (m.type === "answer") await receiveAnswer(m);
+      else if (m.type === "ice")    await receiveICE(m);
+    }
+  } catch (e) {}
+}
+
+async function heartbeat() {
+  try { await fetch(SERVER + "/heartbeat?client_id=" + encodeURIComponent(ID)); } catch (e) {}
+}
+
+// Periodically re-fetch peer list — this is what makes LATE JOINERS
+// get connected. Without it, two clients that started at different
+// times would never see each other.
+async function refreshPeers() {
+  const ids = await fetchPeerList();
+  for (const pid of ids) {
+    if (peers[pid]) continue;
+    if (shouldInitiate(pid)) await connectToPeer(pid);
+    // If not shouldInitiate, the other peer will reach out to us.
+  }
+}
+
+// ============================================================
+//  START
+// ============================================================
+(async function start() {
+  await refreshPeers();                       // initial discovery
+  setInterval(pollSignals, 100);              // fast ICE/offer polling
+  setInterval(refreshPeers, 3000);            // catch late joiners
+  setInterval(heartbeat, 10000);
+  updateNetLabel();
+  console.log("NET running");
+})();
+
+window.addEventListener("beforeunload", () => {
+  for (const pid in peers) removePeer(pid);
+  try { navigator.sendBeacon(SERVER + "/disconnect?client_id=" + encodeURIComponent(ID)); } catch (e) {}
+});
+</script>
 </body>
 </html>
