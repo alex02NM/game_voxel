@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>WebGL2 Terrain — Biomes, Mobs, Flight, Multiplayer + Music</title>
   <style>
     html, body { margin: 0; overflow: hidden; background: #000; }
@@ -33,6 +37,7 @@
       font: 12px monospace; padding: 10px 12px;
       border-radius: 8px; width: 240px; user-select: none;
       border: 1px solid #333;
+      max-height: 78vh; overflow-y: auto; touch-action: pan-y;
     }
     #params h3 { margin: 0 0 8px 0; font: 12px monospace; color: #8f8; }
     #params label { display: block; margin-top: 8px; color: #ccc; }
@@ -49,6 +54,77 @@
     #music-btn:hover { background: #3a3a4a; }
     #music-btn.on { background: #2a4a2a; color: #cfc; border-color: #4a4; }
     #music-vol-row { margin-top: 8px; }
+
+    /* ---------- Panel buttons (music / fullscreen / touch) ---------- */
+    #params button {
+      margin-top: 8px; width: 100%; padding: 6px 8px;
+      background: #2a2a3a; color: #cdf; border: 1px solid #445;
+      border-radius: 4px; cursor: pointer; font: 12px monospace;
+    }
+    #params button:hover { background: #3a3a4a; }
+    #params button.on { background: #2a4a2a; color: #cfc; border-color: #4a4a; }
+
+    /* ---------- Collapsible panel ---------- */
+    #params h3 { cursor: pointer; }
+    #params h3::after { content: ' ▾'; color: #6a6; }
+    #params.collapsed h3::after { content: ' ▸'; }
+    #params.collapsed > *:not(h3) { display: none; }
+
+    /* ---------- Mobile / touch ---------- */
+    canvas { touch-action: none; -webkit-tap-highlight-color: transparent; }
+    .tbtn, #joystick { -webkit-tap-highlight-color: transparent; }
+
+    #touch-controls {
+      position: fixed; inset: 0; z-index: 15;
+      pointer-events: none; display: none;
+    }
+    #touch-controls.enabled { display: block; }
+
+    #joystick {
+      position: absolute; left: 20px; bottom: 24px;
+      width: 132px; height: 132px; border-radius: 50%;
+      background: rgba(255, 255, 255, 0.07);
+      border: 2px solid rgba(160, 255, 200, 0.28);
+      box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.45);
+      pointer-events: auto; touch-action: none;
+    }
+    #stick {
+      position: absolute; left: 50%; top: 50%;
+      width: 58px; height: 58px; margin: -29px 0 0 -29px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%,
+                  rgba(180, 255, 215, 0.55), rgba(60, 140, 110, 0.45));
+      border: 2px solid rgba(190, 255, 220, 0.6);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+      will-change: transform;
+    }
+
+    #touch-buttons {
+      position: absolute; right: 16px; bottom: 24px;
+      display: grid; grid-template-columns: repeat(2, 66px);
+      gap: 12px;
+    }
+    .tbtn {
+      pointer-events: auto; touch-action: none;
+      width: 66px; height: 66px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(18, 26, 36, 0.6);
+      color: #cfe9ff; border: 2px solid rgba(140, 200, 255, 0.45);
+      font: 20px monospace; cursor: pointer; padding: 0;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+    }
+    .tbtn.active, .tbtn:active {
+      background: rgba(60, 130, 110, 0.75);
+      border-color: rgba(150, 255, 200, 0.9);
+      color: #eaffef;
+    }
+
+    @media (max-width: 900px) {
+      #params { width: 200px; top: 62px; font-size: 11px; }
+      #help  { display: none; }
+      #fly   { bottom: 176px; }
+      #fps, #mode, #biome, #net { font-size: 11px; }
+    }
   </style>
 </head>
 <body>
@@ -60,6 +136,19 @@
 <div id="fly"></div>
 <div id="status"></div>
 <div id="help">WASD · Space jump · F = fly · LMB raise · RMB dig · R reset · V mode · [ ] block size</div>
+
+<!-- ---------- Mobile touch controls ---------- -->
+<div id="touch-controls">
+  <div id="joystick"><div id="stick"></div></div>
+  <div id="touch-buttons">
+    <button class="tbtn" id="btn-mode"  title="Terrain mode">V</button>
+    <button class="tbtn" id="btn-fly"   title="Toggle flight">✈</button>
+    <button class="tbtn" id="btn-dig"   title="Dig down">−</button>
+    <button class="tbtn" id="btn-raise" title="Raise terrain">+</button>
+    <button class="tbtn" id="btn-down"  title="Descend (fly)">▼</button>
+    <button class="tbtn" id="btn-jump"  title="Jump / ascend">▲</button>
+  </div>
+</div>
 
 <!-- ---------- Terrain parameter controls (synced to peers) ---------- -->
 <div id="params">
@@ -84,6 +173,8 @@
     </label>
   </div>
   <button id="music-btn">🔊 Ambient Music: OFF</button>
+  <button id="fs-btn">⛶ Fullscreen: OFF</button>
+  <button id="touch-btn">🎮 Touch Controls: OFF</button>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
@@ -107,6 +198,10 @@ let position = [0, 10, 10];
 let keysPressed = {};
 let touchStartX = 0, touchStartY = 0;
 let modelViewMatrix = mat4.create();
+
+// ---- Touch / mobile input ----
+const joyVec = { x: 0, y: 0 };   // virtual joystick vector, -1..1 (y down = backward)
+let lookTouchId = null;          // identifier of the finger currently looking around
 
 // ---- Physics ----
 let velocityY = 13;
@@ -165,17 +260,45 @@ function updateFlyLabel() {
     flightMode ? 'FLIGHT: ON  (F to toggle)' : '';
 }
 
+// ------------------------------------------------------------
+//  TOUCH LOOK
+//  Any finger that lands on the canvas (i.e. NOT on the
+//  joystick / buttons, which are separate elements on top)
+//  becomes the "look" finger. Multi-touch safe.
+// ------------------------------------------------------------
 canvas.addEventListener('touchstart', e => {
-  touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY;
-}, false);
+  if (lookTouchId === null && e.changedTouches.length > 0) {
+    const t = e.changedTouches[0];
+    lookTouchId = t.identifier;
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+  }
+  e.preventDefault();
+}, { passive: false });
+
 canvas.addEventListener('touchmove', e => {
-  const s = 0.002;
-  const dx = e.touches[0].clientX - touchStartX;
-  const dy = e.touches[0].clientY - touchStartY;
-  touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY;
-  mouseX += dx * s; mouseY -= dy * s;
-  mouseY = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, mouseY));
-}, false);
+  const s = 0.004;                        // look sensitivity (rad / px)
+  for (let i = 0; i < e.changedTouches.length; i++) {
+    const t = e.changedTouches[i];
+    if (t.identifier !== lookTouchId) continue;
+    const dx = t.clientX - touchStartX;
+    const dy = t.clientY - touchStartY;
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+    mouseX += dx * s;
+    mouseY -= dy * s;
+    mouseY = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, mouseY));
+  }
+  e.preventDefault();
+}, { passive: false });
+
+function endLookTouch(e) {
+  for (let i = 0; i < e.changedTouches.length; i++) {
+    if (e.changedTouches[i].identifier === lookTouchId) lookTouchId = null;
+  }
+}
+canvas.addEventListener('touchend',    endLookTouch, { passive: false });
+canvas.addEventListener('touchcancel', endLookTouch, { passive: false });
 
 function handleMouseMove(event) {
   const s = 0.002;
@@ -202,10 +325,21 @@ function handleKeyInput() {
 
   const step = flightMode ? 0.5 : 0.05;
 
-  if (keysPressed['s']) targetPosition = vec3.scaleAndAdd([], targetPosition, forward, -step);
-  if (keysPressed['w']) targetPosition = vec3.scaleAndAdd([], targetPosition, forward,  step);
-  if (keysPressed['a']) targetPosition = vec3.scaleAndAdd([], targetPosition, right,   -step);
-  if (keysPressed['d']) targetPosition = vec3.scaleAndAdd([], targetPosition, right,    step);
+  // ---- Merge keyboard + virtual joystick into one movement vector ----
+  let moveF = 0, moveR = 0;
+  if (keysPressed['w']) moveF += 1;
+  if (keysPressed['s']) moveF -= 1;
+  if (keysPressed['d']) moveR += 1;
+  if (keysPressed['a']) moveR -= 1;
+
+  moveF += -joyVec.y;     // joystick pushed up (negative y) = walk forward
+  moveR +=  joyVec.x;     // joystick pushed right = strafe right
+
+  const mag = Math.hypot(moveF, moveR);
+  if (mag > 1) { moveF /= mag; moveR /= mag; }   // keep partial deflection analog
+
+  if (moveF !== 0) targetPosition = vec3.scaleAndAdd([], targetPosition, forward, moveF * step);
+  if (moveR !== 0) targetPosition = vec3.scaleAndAdd([], targetPosition, right,   moveR * step);
 
   if (flightMode) {
     if (keysPressed[' '])     targetPosition[1] += step * 0.6;
@@ -236,7 +370,13 @@ canvas.requestPointerLock =
   canvas.requestPointerLock || canvas.mozRequestPointerLock || canvas.webkitRequestPointerLock;
 document.exitPointerLock =
   document.exitPointerLock || document.mozExitPointerLock || document.webkitExitPointerLock;
-canvas.addEventListener('click', () => canvas.requestPointerLock());
+
+canvas.addEventListener('click', () => {
+  // Pointer lock is meaningless on phones/tablets — skip it there.
+  if (window.matchMedia('(pointer: coarse)').matches) return;
+  canvas.requestPointerLock();
+});
+
 document.addEventListener('pointerlockchange', lockChangeAlert, false);
 document.addEventListener('mozpointerlockchange', lockChangeAlert, false);
 document.addEventListener('webkitpointerlockchange', lockChangeAlert, false);
@@ -1225,15 +1365,22 @@ gl.activeTexture(gl.TEXTURE0);
 gl.bindTexture(gl.TEXTURE_2D, texture);
 gl.uniform1i(uTexture, 0);
 
-canvas.addEventListener('contextmenu', e => e.preventDefault());
-canvas.addEventListener('mousedown', function(event) {
-  if (document.pointerLockElement !== canvas) return;
+// ------------------------------------------------------------
+//  Terrain editing (shared by mouse + on-screen buttons)
+// ------------------------------------------------------------
+function applyTerrainEdit(dig) {
   const dist = 20.0;
   const x = position[0] + Math.sin(mouseX) * dist;
   const z = position[2] - Math.cos(mouseX) * dist;
-  edits.push([x, z, 50.0, event.button === 2 ? -10.0 : 10.0]);
+  edits.push([x, z, 50.0, dig ? -10.0 : 10.0]);
   if (edits.length > MAX_EDITS) edits.shift();
   if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast();
+}
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('mousedown', function(event) {
+  if (document.pointerLockElement !== canvas) return;
+  applyTerrainEdit(event.button === 2);
 });
 
 const fpsElement   = document.getElementById('fps');
@@ -2160,6 +2307,231 @@ function armMusicAutostart() {
 }
 canvas.addEventListener('click', armMusicAutostart, { once: true });
 canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
+</script>
+
+<!-- ============================================================
+     MOBILE TOUCH CONTROLS + FULLSCREEN + RESIZE
+     ============================================================ -->
+<script>
+(function () {
+  const isTouchDevice =
+    ('ontouchstart' in window) ||
+    (navigator.maxTouchPoints > 0) ||
+    window.matchMedia('(pointer: coarse)').matches;
+
+  // ------------------------------------------------------------
+  //  VIRTUAL JOYSTICK  →  writes into the global `joyVec`
+  // ------------------------------------------------------------
+  const joyBase = document.getElementById('joystick');
+  const joyKnob = document.getElementById('stick');
+  const JOY_MAX = 48;                 // px the knob can travel from centre
+  const JOY_DEADZONE = 0.16;
+
+  let joyPointerId = null;
+  let joyCenterX = 0, joyCenterY = 0;
+
+  function joyApply(clientX, clientY) {
+    const dx = clientX - joyCenterX;
+    const dy = clientY - joyCenterY;
+    const len = Math.hypot(dx, dy);
+    const clamped = Math.min(len, JOY_MAX);
+    const nx = len > 1e-4 ? dx / len : 0;
+    const ny = len > 1e-4 ? dy / len : 0;
+
+    joyKnob.style.transform =
+      'translate(' + (nx * clamped).toFixed(1) + 'px, ' +
+                      (ny * clamped).toFixed(1) + 'px)';
+
+    let vx = (nx * clamped) / JOY_MAX;
+    let vy = (ny * clamped) / JOY_MAX;
+    if (Math.hypot(vx, vy) < JOY_DEADZONE) { vx = 0; vy = 0; }
+    joyVec.x = vx;
+    joyVec.y = vy;
+  }
+
+  function joyReset() {
+    joyPointerId = null;
+    joyVec.x = 0;
+    joyVec.y = 0;
+    joyKnob.style.transform = 'translate(0px, 0px)';
+  }
+
+  joyBase.addEventListener('pointerdown', e => {
+    if (joyPointerId !== null) return;
+    const r = joyBase.getBoundingClientRect();
+    joyCenterX = r.left + r.width  * 0.5;
+    joyCenterY = r.top  + r.height * 0.5;
+    joyPointerId = e.pointerId;
+    try { joyBase.setPointerCapture(e.pointerId); } catch (err) {}
+    joyApply(e.clientX, e.clientY);
+    e.preventDefault();
+  });
+
+  joyBase.addEventListener('pointermove', e => {
+    if (e.pointerId !== joyPointerId) return;
+    joyApply(e.clientX, e.clientY);
+    e.preventDefault();
+  });
+
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => {
+    joyBase.addEventListener(ev, e => {
+      if (e.pointerId === joyPointerId) joyReset();
+    });
+  });
+
+  // ------------------------------------------------------------
+  //  HOLD BUTTONS  (jump / ascend, descend)  →  keysPressed
+  // ------------------------------------------------------------
+  function bindHold(id, keyName) {
+    const el = document.getElementById(id);
+    const down = e => {
+      e.preventDefault();
+      keysPressed[keyName] = true;
+      el.classList.add('active');
+    };
+    const up = () => {
+      keysPressed[keyName] = false;
+      el.classList.remove('active');
+    };
+    el.addEventListener('pointerdown', down);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('pointerleave', up);
+    el.addEventListener('lostpointercapture', up);
+  }
+  bindHold('btn-jump', ' ');
+  bindHold('btn-down', 'Shift');
+
+  // ------------------------------------------------------------
+  //  TAP BUTTONS
+  // ------------------------------------------------------------
+  function bindTap(id, fn) {
+    const el = document.getElementById(id);
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      el.classList.add('active');
+      setTimeout(() => el.classList.remove('active'), 120);
+      fn();
+    });
+  }
+
+  bindTap('btn-mode', () => {                       // cycle terrain mode
+    modeIndex = (modeIndex + 1) % 3;
+    updateModeLabel();
+    if (typeof scheduleWorldBroadcast === 'function') scheduleWorldBroadcast();
+  });
+
+  bindTap('btn-fly', () => {                        // toggle flight
+    flightMode = !flightMode;
+    if (flightMode) velocityY = 0;
+    updateFlyLabel();
+  });
+
+  bindTap('btn-raise', () => applyTerrainEdit(false));   // raise terrain
+  bindTap('btn-dig',   () => applyTerrainEdit(true));    // dig terrain
+
+  // ------------------------------------------------------------
+  //  FULLSCREEN
+  // ------------------------------------------------------------
+  const fsBtn = document.getElementById('fs-btn');
+
+  function fsElement() {
+    return document.fullscreenElement ||
+           document.webkitFullscreenElement ||
+           document.mozFullScreenElement ||
+           document.msFullscreenElement || null;
+  }
+
+  function toggleFullscreen() {
+    if (fsElement()) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen ||
+                   document.mozCancelFullScreen || document.msExitFullscreen;
+      if (exit) {
+        const p = exit.call(document);
+        if (p && p.catch) p.catch(() => {});
+      }
+    } else {
+      const el  = document.documentElement;
+      const req = el.requestFullscreen || el.webkitRequestFullscreen ||
+                  el.mozRequestFullScreen || el.msRequestFullscreen;
+      if (req) {
+        const p = req.call(el);
+        if (p && p.catch) p.catch(() => {});
+      } else {
+        console.warn('Fullscreen API not supported on this device/browser.');
+      }
+    }
+  }
+
+  function updateFsBtn() {
+    const on = !!fsElement();
+    fsBtn.textContent = on ? '⛶ Fullscreen: ON' : '⛶ Fullscreen: OFF';
+    fsBtn.classList.toggle('on', on);
+  }
+
+  fsBtn.addEventListener('click', toggleFullscreen);
+
+  // ------------------------------------------------------------
+  //  VIEWPORT RESIZE (window resize, rotation, fullscreen change)
+  // ------------------------------------------------------------
+  function resizeViewport() {
+    const w = Math.max(1, window.innerWidth);
+    const h = Math.max(1, window.innerHeight);
+    if (canvas.width === w && canvas.height === h) return;
+    canvas.width  = w;
+    canvas.height = h;
+    gl.viewport(0, 0, w, h);
+    mat4.perspective(projectionMatrix, Math.PI / 4, w / h, 0.5, 250000);
+  }
+
+  window.addEventListener('resize', resizeViewport);
+  window.addEventListener('orientationchange', () => setTimeout(resizeViewport, 350));
+
+  ['fullscreenchange', 'webkitfullscreenchange',
+   'mozfullscreenchange', 'MSFullscreenChange'].forEach(ev => {
+    document.addEventListener(ev, () => {
+      updateFsBtn();
+      setTimeout(resizeViewport, 120);
+    });
+  });
+
+  updateFsBtn();
+  resizeViewport();
+
+  // ------------------------------------------------------------
+  //  TOUCH-CONTROLS TOGGLE  (auto-on for touch devices)
+  // ------------------------------------------------------------
+  const controlsEl = document.getElementById('touch-controls');
+  const touchBtn   = document.getElementById('touch-btn');
+
+  function setTouchControls(on) {
+    controlsEl.classList.toggle('enabled', on);
+    touchBtn.textContent = '🎮 Touch Controls: ' + (on ? 'ON' : 'OFF');
+    touchBtn.classList.toggle('on', on);
+    if (!on) {
+      joyVec.x = 0;
+      joyVec.y = 0;
+      joyKnob.style.transform = 'translate(0px, 0px)';
+      keysPressed[' ']     = false;
+      keysPressed['Shift'] = false;
+    }
+  }
+
+  touchBtn.addEventListener('click', () => {
+    setTouchControls(!controlsEl.classList.contains('enabled'));
+  });
+
+  setTouchControls(isTouchDevice);
+
+  // ------------------------------------------------------------
+  //  COLLAPSIBLE PARAMETER PANEL (starts collapsed on phones)
+  // ------------------------------------------------------------
+  const panel = document.getElementById('params');
+  panel.querySelector('h3').addEventListener('click', () => {
+    panel.classList.toggle('collapsed');
+  });
+  if (isTouchDevice) panel.classList.add('collapsed');
+})();
 </script>
 </body>
 </html>
