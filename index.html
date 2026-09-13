@@ -98,7 +98,7 @@ html.pseudo-fullscreen,html.pseudo-fullscreen body{position:fixed;inset:0;width:
 <label>Seed (u_S_seed) <span class="val" id="u_S_seed_val">1.36</span><input type="range" id="u_S_seed" min="0" max="10" step="0.01" value="1.36"></label>
 <span id="sync-note">↻ changes broadcast to peers</span>
 <label>🌲 Tree Height <span class="val" id="tree_h_val">1.50×</span><input type="range" id="tree_h" min="0.2" max="4" step="0.05" value="1.5"></label>
-<label>🌲 Tree Density <span class="val" id="tree_d_val">1.60×</span><input type="range" id="tree_d" min="0" max="3" step="0.05" value="1.6"></label>
+<label>🌲 Tree Density <span class="val" id="tree_d_val">1.60×</span><input type="range" id="tree_d" min="0" max="300" step="0.05" value="1.6"></label>
 <button id="rainforest-btn">🌴 Rainforest Preset</button>
 <label>🎵 Music Volume <span class="val" id="music_vol_val">50%</span><input type="range" id="music_vol" min="0" max="100" step="1" value="25"></label>
 <button id="music-btn">🔊 Ambient Music: OFF</button><button id="fs-btn">⛶ Fullscreen: OFF</button><button id="touch-btn">🎮 Touch Controls: OFF</button><button id="trees-btn">🌲 Trees: ON</button><button id="shadows-btn">🌑 Soft Shadows: ON</button>
@@ -109,7 +109,7 @@ const canvas=document.getElementById('webgl-canvas');canvas.width=innerWidth;can
 const gl=canvas.getContext('webgl2',{antialias:true,depth:true});if(!gl)throw new Error('WebGL2 unavailable');
 let mouseX=0,mouseY=0,targetPosition=[100,40,2],position=[0,10,10];const keysPressed={},modelViewMatrix=mat4.create();
 const joyVec={x:0,y:0};let lookTouchId=null,sprinting=false,velocityY=13,grounded=true,flightMode=false;
-const GRAVITY=-30,EYE_HEIGHT=2,JUMP_SPEED=12,MAX_EDITS=32,edits=[],MODE_NAMES=['SMOOTH','VOXEL','MINECRAFT BLOCKS'];
+const GRAVITY=-30,EYE_HEIGHT=2,JUMP_SPEED=30,MAX_EDITS=32,edits=[],MODE_NAMES=['SMOOTH','VOXEL','MINECRAFT BLOCKS'];
 let modeIndex=0,blockSize=1;const SUN_DIR=[.45,.85,.30],SUN_COLOR=[1.05,1,.90],EXPOSURE=1;
 let shadowsEnabled=true,treesEnabled=true,TREE_HEIGHT_MULT=1.5,TREE_DENSITY_MULT=1.6;
 const BIOMES=[
@@ -347,43 +347,180 @@ k=appendSafeZones(mobVertexData,k);
 if(!k)return;gl.useProgram(mobProgram);pushLighting(mobProgram,mobU);gl.bindVertexArray(mobVAO);gl.bindBuffer(gl.ARRAY_BUFFER,mobVBO);gl.bufferSubData(gl.ARRAY_BUFFER,0,mobVertexData,0,k);
 gl.uniformMatrix4fv(mobU.u_projectionMatrix,false,projectionMatrix);gl.uniformMatrix4fv(mobU.u_modelViewMatrix,false,modelViewMatrix);gl.uniform3f(mobU.u_cameraPosition,...position);gl.uniform1f(mobU.u_fogDensity,FOG_DENSITY);
 gl.disable(gl.CULL_FACE);gl.drawArrays(gl.TRIANGLES,0,k/FLOATS_PER_VERT);gl.enable(gl.CULL_FACE);gl.bindVertexArray(null);gl.useProgram(program);}
-const TAU=Math.PI*2,TREE_CELL=2.4,TREE_RADIUS=160,TREE_MAX_INST=22000,TREE_FADE_START=120,TREE_FADE_END=170,TREE_INST_FLOATS=8,TREE_STRIDE=TREE_INST_FLOATS*4;
-const TREE_EMERGENT=0,TREE_CANOPY=1,TREE_PALM=2,TREE_UNDERSTORY=3,TREE_FERN=4,TREE_TYPES=5,TREE_NOMINAL_H=[42,20,30,7,2.2];
+
+/* ══════════════════════════════════════════════════════════════════
+   VOXEL TREES  (replaces the old cylinder/cone/sphere tree system)
+   ══════════════════════════════════════════════════════════════════ */
+const TAU=Math.PI*2,TREE_CELL=2.4,TREE_RADIUS=120,TREE_MAX_INST=3500,TREE_FADE_START=90,TREE_FADE_END=115,TREE_INST_FLOATS=8,TREE_STRIDE=TREE_INST_FLOATS*4;
+const TREE_EMERGENT=0,TREE_CANOPY=1,TREE_PALM=2,TREE_UNDERSTORY=3,TREE_FERN=4,TREE_TYPES=5,TREE_NOMINAL_H=[38,18,26,7,2.8];
 const treeTypeVertStart=new Int32Array(TREE_TYPES),treeTypeVertCount=new Int32Array(TREE_TYPES),treeTypeCount=new Int32Array(TREE_TYPES);
+
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
-function makeTreeBuilder(){const pos=[],nrm=[],col=[];const sub=(u,v)=>[u[0]-v[0],u[1]-v[1],u[2]-v[2]];const cross=(u,v)=>[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];const unit=v=>{const l=Math.hypot(v[0],v[1],v[2])||1;return[v[0]/l,v[1]/l,v[2]/l];};
-const tri=(a,b,c,n,ca,cb,cc)=>{const nn=unit(n);pos.push(a[0],a[1],a[2],b[0],b[1],b[2],c[0],c[1],c[2]);nrm.push(nn[0],nn[1],nn[2],nn[0],nn[1],nn[2],nn[0],nn[1],nn[2]);col.push(ca[0],ca[1],ca[2],cb[0],cb[1],cb[2],cc[0],cc[1],cc[2]);};
-const quad=(a,b,c,d,n,ca,cb,cc,cd)=>{tri(a,b,c,n,ca,cb,cc);tri(a,c,d,n,ca,cc,cd);};
-return{cylinder(y0,y1,r0,r1,seg,cLow,cHigh,cx=0,cz=0,cap=false){const slope=(r0-r1)/Math.max(y1-y0,1e-4);
-for(let i=0;i<seg;i++){const a0=i/seg*TAU,a1=(i+1)/seg*TAU,c0=Math.cos(a0),s0=Math.sin(a0),c1=Math.cos(a1),s1=Math.sin(a1);
-const A=[cx+c0*r0,y0,cz+s0*r0],B=[cx+c1*r0,y0,cz+s1*r0],C=[cx+c1*r1,y1,cz+s1*r1],D=[cx+c0*r1,y1,cz+s0*r1];quad(A,B,C,D,[c0+c1,slope,s0+s1],cLow,cLow,cHigh,cHigh);}
-if(cap&&r1>0){for(let i=0;i<seg;i++){const a0=i/seg*TAU,a1=(i+1)/seg*TAU;const A=[cx+Math.cos(a0)*r1,y1,cz+Math.sin(a0)*r1],B=[cx+Math.cos(a1)*r1,y1,cz+Math.sin(a1)*r1];tri(A,B,[cx,y1,cz],[0,1,0],cHigh,cHigh,cHigh);}}},
-cone(y0,y1,r,seg,cLow,cHigh,cx=0,cz=0,cap=false){const apex=[cx,y1,cz];
-for(let i=0;i<seg;i++){const a0=i/seg*TAU,a1=(i+1)/seg*TAU;const A=[cx+Math.cos(a0)*r,y0,cz+Math.sin(a0)*r],B=[cx+Math.cos(a1)*r,y0,cz+Math.sin(a1)*r];const n=cross(sub(apex,A),sub(B,A));tri(A,B,apex,n,cLow,cLow,cHigh);if(cap)tri(B,A,[cx,y0,cz],[0,-1,0],cLow,cLow,cLow);}},
-sphere(cy,r,segU,segV,cLow,cHigh,cx=0,cz=0,yScale=1){const P=(p,t)=>[cx+Math.sin(p)*Math.cos(t)*r,cy+Math.cos(p)*r*yScale,cz+Math.sin(p)*Math.sin(t)*r];
-for(let j=0;j<segV;j++){const p0=j/segV*Math.PI,p1=(j+1)/segV*Math.PI;
-for(let i=0;i<segU;i++){const t0=i/segU*TAU,t1=(i+1)/segU*TAU;const A=P(p0,t0),B=P(p0,t1),C=P(p1,t1),D=P(p1,t0);const nA=sub(A,[cx,cy,cz]),nB=sub(B,[cx,cy,cz]),nC=sub(C,[cx,cy,cz]),nD=sub(D,[cx,cy,cz]);
-tri(A,B,C,[nA[0]+nB[0]+nC[0],nA[1]+nB[1]+nC[1],nA[2]+nB[2]+nC[2]],cLow,cLow,cHigh);tri(A,C,D,[nA[0]+nC[0]+nD[0],nA[1]+nC[1]+nD[1],nA[2]+nC[2]+nD[2]],cLow,cHigh,cHigh);}}},
-count(){return pos.length/3;},arrays(){return{pos,nrm,col}}};}
-const BARK_LO=[.16,.12,.08],BARK_HI=[.30,.21,.13],LEAF_LO=[.09,.26,.08],LEAF_HI=[.24,.50,.16],PALM_LO=[.07,.22,.06],PALM_HI=[.20,.44,.11],UNDER_LO=[.08,.22,.07],UNDER_HI=[.20,.42,.14];
-function buildTreeMesh(type){const B=makeTreeBuilder(),rnd=mulberry32(0xBEEF+type*9973);
-if(type===TREE_EMERGENT){const h=.68;B.cylinder(0,h,.055,.022,6,BARK_LO,BARK_HI);
-for(let i=0;i<5;i++){const a=i/5*TAU+rnd()*.4;B.cone(0,.15,.10,4,BARK_LO,BARK_HI,Math.cos(a)*.10,Math.sin(a)*.10);}
-for(let i=0;i<4;i++){const a=i/4*TAU+rnd()*.5;B.cone(h-.10,h+.02,.06,3,BARK_LO,BARK_HI,Math.cos(a)*.12,Math.sin(a)*.12);}
-B.sphere(h+.02,.40,8,4,LEAF_LO,LEAF_HI,0,0,.55);B.sphere(h+.12,.32,8,4,LEAF_LO,LEAF_HI,.05,-.04,.60);B.sphere(h+.22,.20,6,3,LEAF_LO,LEAF_HI,-.03,.03,.70);}
-else if(type===TREE_CANOPY){const h=.45;B.cylinder(0,h,.045,.025,5,BARK_LO,BARK_HI);B.sphere(h+.02,.28,7,4,LEAF_LO,LEAF_HI,0,0,.90);B.sphere(h-.05,.22,6,3,LEAF_LO,LEAF_HI,.15,.10,.90);B.sphere(h+.10,.18,6,3,LEAF_LO,LEAF_HI,-.12,-.08,.85);}
-else if(type===TREE_PALM){const h=.85;B.cylinder(0,h,.035,.028,6,BARK_LO,BARK_HI);
-for(let i=0;i<7;i++){const a=i/7*TAU+rnd()*.3;B.cone(h-.02,h+.14,.12,4,PALM_LO,PALM_HI,Math.cos(a)*.16,Math.sin(a)*.16);}
-B.sphere(h+.04,.08,5,3,PALM_LO,PALM_HI);}
-else if(type===TREE_UNDERSTORY){const h=.22;B.cylinder(0,h,.028,.015,5,BARK_LO,BARK_HI);B.sphere(h+.06,.16,6,3,UNDER_LO,UNDER_HI,0,0,.90);B.sphere(h+.14,.11,5,3,UNDER_LO,UNDER_HI,.05,-.03,.90);}
-else{for(let i=0;i<6;i++){const a=i/6*TAU+rnd()*.5;B.cone(0,.16,.075,4,LEAF_LO,LEAF_HI,Math.cos(a)*.10,Math.sin(a)*.10);}B.sphere(.02,.05,4,3,LEAF_LO,LEAF_HI);}
-return B;}
-(function(){const allPos=[],allNrm=[],allCol=[];let vertOffset=0;
-for(let t=0;t<TREE_TYPES;t++){const a=buildTreeMesh(t).arrays(),n=a.pos.length/3;treeTypeVertStart[t]=vertOffset;treeTypeVertCount[t]=n;vertOffset+=n;
-for(let i=0;i<a.pos.length;i++)allPos.push(a.pos[i]);for(let i=0;i<a.nrm.length;i++)allNrm.push(a.nrm[i]);for(let i=0;i<a.col.length;i++)allCol.push(a.col[i]);}
-const mesh=new Float32Array(vertOffset*9);
-for(let i=0;i<vertOffset;i++){mesh[i*9]=allPos[i*3];mesh[i*9+1]=allPos[i*3+1];mesh[i*9+2]=allPos[i*3+2];mesh[i*9+3]=allNrm[i*3];mesh[i*9+4]=allNrm[i*3+1];mesh[i*9+5]=allNrm[i*3+2];mesh[i*9+6]=allCol[i*3];mesh[i*9+7]=allCol[i*3+1];mesh[i*9+8]=allCol[i*3+2];}
-const vbo=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vbo);gl.bufferData(gl.ARRAY_BUFFER,mesh,gl.STATIC_DRAW);window.__treeVBO=vbo;})();
+
+/* ── Species definitions: each one drives its own recursive growth ── */
+const VOXEL_SPECIES=[
+  // EMERGENT — tall tropical emergent
+  { trunk:13, maxDepth:3, baseBranches:3, branchChance:0.65, lengthFalloff:0.70,
+    leafDepth:2, leafSpread:3, leafPerVoxel:2,
+    trunkColors:[[0.16,0.11,0.07],[0.22,0.15,0.10],[0.14,0.09,0.06]],
+    leafColors:[[0.08,0.26,0.08],[0.13,0.36,0.11],[0.18,0.44,0.14]] },
+  // CANOPY — medium broadleaf
+  { trunk:9,  maxDepth:3, baseBranches:3, branchChance:0.65, lengthFalloff:0.70,
+    leafDepth:1, leafSpread:3, leafPerVoxel:3,
+    trunkColors:[[0.20,0.14,0.09],[0.28,0.20,0.13]],
+    leafColors:[[0.10,0.30,0.10],[0.15,0.40,0.13],[0.20,0.46,0.15]] },
+  // PALM — slender trunk with fronds
+  { trunk:12, maxDepth:2, baseBranches:5, branchChance:0.55, lengthFalloff:0.40,
+    leafDepth:1, leafSpread:3, leafPerVoxel:3,
+    trunkColors:[[0.22,0.16,0.10],[0.30,0.22,0.14]],
+    leafColors:[[0.09,0.28,0.08],[0.14,0.36,0.11]] },
+  // UNDERSTORY — small tree
+  { trunk:5,  maxDepth:3, baseBranches:3, branchChance:0.65, lengthFalloff:0.65,
+    leafDepth:1, leafSpread:3, leafPerVoxel:3,
+    trunkColors:[[0.16,0.11,0.08],[0.22,0.15,0.10]],
+    leafColors:[[0.10,0.28,0.09],[0.16,0.38,0.12]] },
+  // FERN — small bush
+  { trunk:2,  maxDepth:2, baseBranches:4, branchChance:0.70, lengthFalloff:0.55,
+    leafDepth:0, leafSpread:3, leafPerVoxel:3,
+    trunkColors:[[0.14,0.09,0.06]],
+    leafColors:[[0.12,0.30,0.10],[0.16,0.38,0.12]] },
+];
+
+/* ── Recursive branch generator — produces a Map of voxel cells ── */
+function generateVoxelTreeBlueprint(type,seed){
+  const rand=mulberry32(seed);
+  const sp=VOXEL_SPECIES[type];
+  const voxels=new Map();
+
+  function place(x,y,z,color){
+    const ix=Math.round(x),iy=Math.round(y),iz=Math.round(z);
+    if(iy<0)return;
+    const k=ix+','+iy+','+iz;
+    if(!voxels.has(k))voxels.set(k,{x:ix,y:iy,z:iz,c:color});
+  }
+
+  function branch(ox,oy,oz,dx,dy,dz,length,depth){
+    const steps=Math.max(1,Math.round(length));
+    for(let i=1;i<=steps;i++){
+      const t=i/steps;
+      const px=ox+dx*length*t;
+      const py=oy+dy*length*t;
+      const pz=oz+dz*length*t;
+
+      const wc=sp.trunkColors[(rand()*sp.trunkColors.length)|0];
+      place(px,py,pz,wc);
+
+      if(depth>=sp.leafDepth&&t>0.25){
+        for(let c=0;c<sp.leafPerVoxel;c++){
+          const lx=px+(rand()-0.5)*sp.leafSpread;
+          const ly=py+(rand()-0.5)*sp.leafSpread*0.8;
+          const lz=pz+(rand()-0.5)*sp.leafSpread;
+          const lc=sp.leafColors[(rand()*sp.leafColors.length)|0];
+          place(lx,ly,lz,lc);
+        }
+      }
+    }
+
+    if(depth>=sp.maxDepth)return;
+
+    const tx=ox+dx*length;
+    const ty=oy+dy*length;
+    const tz=oz+dz*length;
+    const n=depth===0?sp.baseBranches:(rand()<sp.branchChance?2:1);
+
+    for(let b=0;b<n;b++){
+      const a=rand()*Math.PI*2;
+      const spread=0.55+rand()*0.55;
+      let nx=dx+Math.sin(a)*spread;
+      let ny=dy*(0.72+rand()*0.30)+0.22;
+      let nz=dz+Math.cos(a)*spread;
+      const m=Math.hypot(nx,ny,nz);
+      nx/=m;ny/=m;nz/=m;
+      branch(tx,ty,tz,nx,ny,nz,length*sp.lengthFalloff,depth+1);
+    }
+  }
+
+  branch(0,0,0,0,1,0,sp.trunk,0);
+  return voxels;
+}
+
+/* ── Cube face table (CW winding, matches gl.frontFace(gl.CW)) ── */
+const VOXEL_FACES=[
+  { n:[ 1,0,0], v:[[ 0.5,-0.5, 0.5],[ 0.5,-0.5,-0.5],[ 0.5, 0.5,-0.5],[ 0.5, 0.5, 0.5]] },
+  { n:[-1,0,0], v:[[-0.5,-0.5,-0.5],[-0.5,-0.5, 0.5],[-0.5, 0.5, 0.5],[-0.5, 0.5,-0.5]] },
+  { n:[ 0, 1,0], v:[[-0.5, 0.5,-0.5],[ 0.5, 0.5,-0.5],[ 0.5, 0.5, 0.5],[-0.5, 0.5, 0.5]] },
+  { n:[ 0,-1,0], v:[[-0.5,-0.5, 0.5],[ 0.5,-0.5, 0.5],[ 0.5,-0.5,-0.5],[-0.5,-0.5,-0.5]] },
+  { n:[ 0,0, 1], v:[[-0.5, 0.5, 0.5],[ 0.5, 0.5, 0.5],[ 0.5,-0.5, 0.5],[-0.5,-0.5, 0.5]] },
+  { n:[ 0,0,-1], v:[[ 0.5, 0.5,-0.5],[-0.5, 0.5,-0.5],[-0.5,-0.5,-0.5],[ 0.5,-0.5,-0.5]] },
+];
+
+/* ── Exposed-face mesh builder — skips interior faces ── */
+function buildVoxelMesh(voxels){
+  const pos=[],nrm=[],col=[];
+  for(const v of voxels.values()){
+    const r=v.c[0],g=v.c[1],b=v.c[2];
+    for(let fi=0;fi<6;fi++){
+      const f=VOXEL_FACES[fi];
+      const nk=(v.x+f.n[0])+','+(v.y+f.n[1])+','+(v.z+f.n[2]);
+      if(voxels.has(nk))continue;
+      const q=f.v,fn=f.n;
+      pos.push(v.x+q[0][0],v.y+q[0][1],v.z+q[0][2], v.x+q[1][0],v.y+q[1][1],v.z+q[1][2], v.x+q[2][0],v.y+q[2][1],v.z+q[2][2]);
+      nrm.push(fn[0],fn[1],fn[2], fn[0],fn[1],fn[2], fn[0],fn[1],fn[2]);
+      col.push(r,g,b, r,g,b, r,g,b);
+      pos.push(v.x+q[0][0],v.y+q[0][1],v.z+q[0][2], v.x+q[2][0],v.y+q[2][1],v.z+q[2][2], v.x+q[3][0],v.y+q[3][1],v.z+q[3][2]);
+      nrm.push(fn[0],fn[1],fn[2], fn[0],fn[1],fn[2], fn[0],fn[1],fn[2]);
+      col.push(r,g,b, r,g,b, r,g,b);
+    }
+  }
+  return {pos,nrm,col};
+}
+
+/* ── Bake all 5 species into a single interleaved VBO ── */
+(function(){
+  const allPos=[],allNrm=[],allCol=[];
+  let vertOffset=0;
+
+  for(let t=0;t<TREE_TYPES;t++){
+    const voxels=generateVoxelTreeBlueprint(t,0xBEEF+t*9973);
+    const mesh=buildVoxelMesh(voxels);
+    const n=mesh.pos.length/3;
+
+    // Find highest voxel centre so we can normalise model height to 1.0
+    let maxY=0.5;
+    for(let i=1;i<mesh.pos.length;i+=3)if(mesh.pos[i]>maxY)maxY=mesh.pos[i];
+    // Bottom of lowest voxel is at y=-0.5, top at maxY+0.5.
+    // Shift by +0.5 then divide by (maxY+1) so range becomes [0,1].
+    const yShift=0.5;
+    const invH=1.0/(maxY+1.0);
+
+    treeTypeVertStart[t]=vertOffset;
+    treeTypeVertCount[t]=n;
+    vertOffset+=n;
+
+    for(let i=0;i<mesh.pos.length;i+=3){
+      allPos.push(
+        mesh.pos[i]   * invH,
+        (mesh.pos[i+1]+yShift) * invH,
+        mesh.pos[i+2] * invH
+      );
+    }
+    for(let i=0;i<mesh.nrm.length;i++)allNrm.push(mesh.nrm[i]);
+    for(let i=0;i<mesh.col.length;i++)allCol.push(mesh.col[i]);
+  }
+
+  const mesh=new Float32Array(vertOffset*9);
+  for(let i=0;i<vertOffset;i++){
+    mesh[i*9]  =allPos[i*3];   mesh[i*9+1]=allPos[i*3+1]; mesh[i*9+2]=allPos[i*3+2];
+    mesh[i*9+3]=allNrm[i*3];   mesh[i*9+4]=allNrm[i*3+1]; mesh[i*9+5]=allNrm[i*3+2];
+    mesh[i*9+6]=allCol[i*3];   mesh[i*9+7]=allCol[i*3+1]; mesh[i*9+8]=allCol[i*3+2];
+  }
+
+  const vbo=gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER,vbo);
+  gl.bufferData(gl.ARRAY_BUFFER,mesh,gl.STATIC_DRAW);
+  window.__treeVBO=vbo;
+})();
+
 const treeVBO=window.__treeVBO,treeInstVBO=gl.createBuffer(),treeVAO=gl.createVertexArray();
 gl.bindVertexArray(treeVAO);gl.bindBuffer(gl.ARRAY_BUFFER,treeVBO);
 gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,3,gl.FLOAT,false,36,0);gl.enableVertexAttribArray(1);gl.vertexAttribPointer(1,3,gl.FLOAT,false,36,12);gl.enableVertexAttribArray(2);gl.vertexAttribPointer(2,3,gl.FLOAT,false,36,24);
@@ -541,7 +678,7 @@ canvas.addEventListener('click',()=>{if(matchMedia('(pointer: coarse)').matches)
 document.addEventListener('pointerlockchange',()=>{if(document.pointerLockElement===canvas)addEventListener('mousemove',handleMouseMove);else removeEventListener('mousemove',handleMouseMove);});
 function handleKeyInput(){const forward=[-modelViewMatrix[2],-modelViewMatrix[6],-modelViewMatrix[10]],right=[modelViewMatrix[0],modelViewMatrix[4],modelViewMatrix[8]];
 if(!flightMode){forward[1]=0;right[1]=0;}vec3.normalize(forward,forward);vec3.normalize(right,right);
-const sprintMult=(sprinting||(keysPressed['shift']&&!flightMode))?2.4:1,step=(flightMode?.5:.05)*sprintMult;
+const sprintMult=(sprinting||(keysPressed['shift']&&!flightMode))?2.4:1,step=(flightMode?.5:.15)*sprintMult;
 let mf=0,mr=0;if(keysPressed['w'])mf+=1;if(keysPressed['s'])mf-=1;if(keysPressed['d'])mr+=1;if(keysPressed['a'])mr-=1;mf+=-joyVec.y;mr+=joyVec.x;
 const mag=Math.hypot(mf,mr);if(mag>1){mf/=mag;mr/=mag;}
 if(mf)targetPosition=vec3.scaleAndAdd([],targetPosition,forward,mf*step);if(mr)targetPosition=vec3.scaleAndAdd([],targetPosition,right,mr*step);
