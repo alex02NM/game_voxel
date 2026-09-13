@@ -1,2552 +1,6 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>WebGL2 Terrain — Voxel Rainforest</title>
-<style>
-html,body{margin:0;height:100%;height:100dvh;overflow:hidden;background:#000;overscroll-behavior:none;
-  -webkit-user-select:none;user-select:none;font:14px monospace}
-body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);box-sizing:border-box}
-canvas{display:block;width:100vw;height:100dvh;touch-action:none;-webkit-tap-highlight-color:transparent}
-button{-webkit-tap-highlight-color:transparent}
-.hud{position:fixed;left:8px;z-index:10;color:#0f0}
-#fps{top:8px}#mode{top:26px;color:#0ff}#biome{top:44px;color:#ff0}#net{top:62px;color:#f80}
-#status{position:fixed;right:8px;top:8px;z-index:10;color:#0af;font-size:12px;text-align:right}
-#fly{position:fixed;right:8px;bottom:8px;z-index:10;color:#f0f}
-#help{position:fixed;left:8px;bottom:8px;z-index:10;color:#888;font-size:12px}
-#params{position:fixed;top:30px;right:8px;z-index:20;width:250px;max-height:78vh;overflow-y:auto;
-  padding:10px 12px;border:1px solid #333;border-radius:8px;background:rgba(20,20,20,.85);
-  color:#eee;font-size:12px;touch-action:pan-y}
-#params h3{margin:0 0 8px;color:#8f8;cursor:pointer}
-#params h3::after{content:' ▾';color:#6a6}
-#params.collapsed h3::after{content:' ▸'}
-#params.collapsed>*:not(h3){display:none}
-#params label{display:block;margin-top:8px;color:#ccc}
-#params input[type=range]{width:100%;margin-top:2px}
-#params .val{color:#ff0;float:right}
-#params button{width:100%;margin-top:8px;padding:6px;border:1px solid #445;border-radius:4px;
-  background:#2a2a3a;color:#cdf;cursor:pointer;font:12px monospace}
-#params button.on{background:#2a4a2a;color:#cfc}
-#sync-note{display:block;margin-top:8px;color:#6af;font-size:10px}
-html.pseudo-fullscreen,html.pseudo-fullscreen body{position:fixed;inset:0;width:100%;height:100%;overflow:hidden}
-html.pseudo-fullscreen body{padding:0}
-#touch-controls{position:fixed;inset:0;z-index:15;pointer-events:none;display:none;touch-action:none}
-#touch-controls.enabled{display:block}
-#joystick{position:absolute;left:max(18px,env(safe-area-inset-left,0px) + 14px);
-  bottom:max(18px,env(safe-area-inset-bottom,0px) + 18px);width:156px;height:156px;border-radius:50%;
-  background:radial-gradient(circle,rgba(70,200,160,.10),rgba(20,55,48,.30) 62%,rgba(8,16,15,.48));
-  border:2px solid rgba(130,240,190,.35);
-  box-shadow:inset 0 0 32px rgba(0,0,0,.65),0 6px 24px rgba(0,0,0,.55);
-  pointer-events:auto;touch-action:none;backdrop-filter:blur(3px)}
-#joystick::after{content:'';position:absolute;inset:14px;border-radius:50%;
-  border:1px dashed rgba(140,255,200,.18)}
-#stick{position:absolute;left:50%;top:50%;width:70px;height:70px;margin:-35px 0 0 -35px;border-radius:50%;
-  background:radial-gradient(circle at 35% 28%,rgba(230,255,240,.95),rgba(100,220,170,.88) 42%,rgba(28,118,92,.95));
-  border:2px solid rgba(210,255,230,.85);
-  box-shadow:0 6px 18px rgba(0,0,0,.55),0 0 22px rgba(100,220,170,.35);will-change:transform}
-#right-controls{position:absolute;right:max(14px,env(safe-area-inset-right,0px) + 12px);
-  bottom:max(16px,env(safe-area-inset-bottom,0px) + 16px);display:flex;flex-direction:column;
-  align-items:flex-end;gap:12px}
-#secondary-row{display:flex;gap:10px}
-#primary-grid{display:grid;grid-template-columns:84px 84px;grid-template-rows:84px 84px;gap:12px}
-.tbtn{pointer-events:auto;touch-action:none;display:flex;align-items:center;justify-content:center;
-  border:2px solid rgba(140,200,255,.55);color:#e6f4ff;cursor:pointer;padding:0;font-weight:700;
-  background:radial-gradient(circle at 35% 30%,rgba(120,200,255,.35),rgba(28,55,85,.72));
-  box-shadow:0 4px 14px rgba(0,0,0,.5);transition:transform .07s,background .12s,box-shadow .12s}
-.tbtn:active,.tbtn.active{transform:scale(.93);border-color:rgba(180,255,220,.95);
-  background:radial-gradient(circle at 35% 30%,rgba(160,255,210,.6),rgba(40,145,115,.92))}
-.tbtn.on{border-color:rgba(180,255,220,.95);
-  background:radial-gradient(circle at 35% 30%,rgba(160,255,210,.55),rgba(35,130,100,.9))}
-.tbtn.lg{width:84px;height:84px;border-radius:50%;font-size:30px}
-.tbtn.sm{width:58px;height:58px;border-radius:14px;font-size:22px}
-#btn-fly{grid-area:1/1}#btn-sprint{grid-area:1/2}#btn-down{grid-area:2/1}#btn-jump{grid-area:2/2}
-#fs-fab{position:fixed;top:max(12px,env(safe-area-inset-top,0px) + 10px);
-  right:max(12px,env(safe-area-inset-right,0px) + 10px);z-index:30;display:none;
-  width:50px;height:50px;border-radius:14px;border:1px solid rgba(140,200,255,.55);
-  background:rgba(18,28,40,.78);color:#cfe9ff;font-size:22px;cursor:pointer;
-  align-items:center;justify-content:center;padding:0;backdrop-filter:blur(5px)}
-#fs-hint{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:40;
-  max-width:min(92vw,380px);padding:16px 18px;border:1px solid rgba(140,200,255,.55);border-radius:14px;
-  background:rgba(14,22,32,.96);color:#e6f4ff;font:14px/1.5 system-ui,-apple-system,sans-serif;
-  box-shadow:0 12px 40px rgba(0,0,0,.7);backdrop-filter:blur(8px)}
-.fs-hint-inner{display:flex;align-items:flex-start;gap:12px}
-.fs-hint-text{flex:1;font-size:13px}
-.fs-hint-share{display:inline-block;padding:1px 7px;border:1px solid rgba(140,200,255,.5);
-  border-radius:6px;background:rgba(90,170,240,.22);font-size:12px}
-.fs-hint-close{background:none;border:none;color:#8fb8d8;font-size:18px;cursor:pointer;padding:0 4px}
-@media (max-width:900px){
-  #params{width:210px;top:62px;font-size:11px}
-  #help{display:none}
-  #fps,#mode,#biome,#net{font-size:11px}
-}
-@media (max-height:480px){
-  #joystick{width:128px;height:128px}
-  #stick{width:58px;height:58px;margin:-29px 0 0 -29px}
-  #primary-grid{grid-template-columns:72px 72px;grid-template-rows:72px 72px;gap:10px}
-  .tbtn.lg{width:72px;height:72px;font-size:26px}
-  .tbtn.sm{width:50px;height:50px;font-size:19px}
-}
-@media (max-width:900px),(pointer:coarse),(hover:none){#params{display:none!important}}
-
-#survival-hud{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:12;
-  color:#fff;font:bold 13px monospace;text-align:center;pointer-events:none;
-  text-shadow:0 2px 6px #000,0 0 4px #000;line-height:1.7;display:none}
-#survival-hud.on{display:block}
-#survival-hud .bar{display:inline-block;width:150px;height:12px;border:1px solid #6f6;
-  vertical-align:middle;background:#111;border-radius:4px;overflow:hidden}
-#survival-hud .bar>i{display:block;height:100%;background:linear-gradient(90deg,#f44,#fa4);
-  transition:width .15s;width:100%}
-#survival-hud .ammo{color:#ff6}
-#survival-hud .res{color:#8cf}
-#car-prompt{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:14;
-  color:#ffe;font:bold 13px monospace;text-shadow:0 2px 6px #000,0 0 4px #000;
-  padding:6px 14px;border-radius:10px;background:rgba(0,0,0,.5);
-  border:1px solid rgba(255,230,140,.4);pointer-events:none;display:none}
-#car-prompt.on{display:block}
-#timeofday{position:fixed;right:8px;top:44px;z-index:10;color:#ffd;font-size:12px}
-</style>
-</head>
-<body>
-<canvas id="webgl-canvas"></canvas>
-<div id="fps"   class="hud"></div>
-<div id="mode"  class="hud"></div>
-<div id="biome" class="hud"></div>
-<div id="net"   class="hud"></div>
-<div id="fly"></div>
-<div id="status"></div>
-<div id="help">WASD · Space jump · F fly · LMB raise · RMB dig · R reset · V mode · [ ] block size · E drive · K shoot</div>
-
-<div id="survival-hud">
-  <div>❤ <span class="bar"><i id="hp-bar"></i></span></div>
-  <div><span class="ammo" id="ammo-text">AMMO 6/6</span> &nbsp;·&nbsp;
-       <span class="res"  id="res-text">🪵 0 &nbsp; 🪨 0 &nbsp; 🍖 0</span></div>
-</div>
-<div id="car-prompt">Press <b>E</b> to drive</div>
-
-<div id="touch-controls">
-  <div id="joystick"><div id="stick"></div></div>
-  <div id="right-controls">
-    <div id="secondary-row">
-      <button class="tbtn sm" id="btn-raise">+</button>
-      <button class="tbtn sm" id="btn-dig">−</button>
-      <button class="tbtn sm" id="btn-mode">V</button>
-      <button class="tbtn sm" id="btn-reset">↺</button>
-      <button class="tbtn sm" id="btn-shoot">🔫</button>
-      <button class="tbtn sm" id="btn-car">🚗</button>
-    </div>
-    <div id="primary-grid">
-      <button class="tbtn lg" id="btn-fly">✈</button>
-      <button class="tbtn lg" id="btn-sprint">⚡</button>
-      <button class="tbtn lg" id="btn-down">▼</button>
-      <button class="tbtn lg" id="btn-jump">▲</button>
-    </div>
-  </div>
-</div>
-
-<div id="params">
-  <h3>World Parameters</h3>
-  <label>Amplitude (u_k) <span class="val" id="u_k_val">60.0</span>
-    <input type="range" id="u_k" min="0" max="1000" step="0.1" value="10"></label>
-  <label>Frequency (u_p) <span class="val" id="u_p_val">110.0</span>
-    <input type="range" id="u_p" min="0.1" max="1000" step="0.1" value="10"></label>
-  <label>Scale (u_m) <span class="val" id="u_m_val">210</span>
-    <input type="range" id="u_m" min="1" max="5000" step="1" value="10"></label>
-  <label>Seed (u_S_seed) <span class="val" id="u_S_seed_val">1.36</span>
-    <input type="range" id="u_S_seed" min="0" max="10" step="0.01" value="1.36"></label>
-  <span id="sync-note">↻ changes broadcast to peers</span>
-
-  <label>🌲 Tree Height <span class="val" id="tree_h_val">1.50×</span>
-    <input type="range" id="tree_h" min="0.2" max="4" step="0.05" value="1.5"></label>
-  <label>🌲 Tree Density <span class="val" id="tree_d_val">1.60×</span>
-    <input type="range" id="tree_d" min="0" max="3" step="0.05" value="1.6"></label>
-  <button id="rainforest-btn">🌴 Rainforest Preset</button>
-
-  <button id="respawn-btn">🏠 Respawn (0, 0)</button>
-  <button id="survival-btn">💀 Survival Mode: OFF</button>
-  <button id="car-btn">🚗 Enter Car</button>
-
-  <label>🎵 Music Volume <span class="val" id="music_vol_val">50%</span>
-    <input type="range" id="music_vol" min="0" max="100" step="1" value="25"></label>
-  <button id="music-btn">🔊 Ambient Music: OFF</button>
-  <button id="fs-btn">⛶ Fullscreen: OFF</button>
-  <button id="touch-btn">🎮 Touch Controls: OFF</button>
-  <button id="trees-btn">🌲 Trees: ON</button>
-  <button id="shadows-btn">🌑 Soft Shadows: ON</button>
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
-<script>
-/* ════════════════════════════════════════════════════════════
-   1 · CONTEXT
-   ════════════════════════════════════════════════════════════ */
-const canvas = document.getElementById('webgl-canvas');
-canvas.width  = innerWidth;
-canvas.height = innerHeight;
-const gl = canvas.getContext('webgl2', {antialias:true, depth:true});
-if (!gl) throw new Error('WebGL2 unavailable');
-
-/* ════════════════════════════════════════════════════════════
-   2 · STATE
-   ════════════════════════════════════════════════════════════ */
-let mouseX = 0, mouseY = 0;
-let targetPosition = [100, 40, 2];
-let position       = [0, 10, 10];
-const keysPressed  = {};
-const modelViewMatrix = mat4.create();
-const joyVec = {x:0, y:0};
-let lookTouchId = null, sprinting = false;
-let velocityY = 13, grounded = true, flightMode = false;
-const GRAVITY = -30, EYE_HEIGHT = 2, JUMP_SPEED = 12;
-
-const MAX_EDITS = 32, edits = [];
-const MODE_NAMES = ['SMOOTH','VOXEL','MINECRAFT BLOCKS'];
-let modeIndex = 0, blockSize = 1;
-
-const SUN_DIR    = [.45, .85, .30];
-const SUN_COLOR  = [1.05, 1.00, .90];
-const EXPOSURE   = 1.00;
-let   shadowsEnabled = true;
-let   treesEnabled   = true;
-
-let TREE_HEIGHT_MULT  = 1.5;
-let TREE_DENSITY_MULT = 1.6;
-
-const BIOMES = [
-  {name:'PLAINS', sky:[.58,.76,.97], top:[.20,.42,.86], ground:[.34,.40,.22],
-   zombie:.22, animal:.78, tree:.12, conifer:.25},
-  {name:'FOREST', sky:[.42,.60,.60], top:[.13,.28,.34], ground:[.18,.26,.15],
-   zombie:.45, animal:.55, tree:.75, conifer:.55},
-  {name:'DESERT', sky:[.98,.85,.62], top:[.30,.52,.86], ground:[.55,.46,.28],
-   zombie:.35, animal:.65, tree:.05, conifer:.10},
-  {name:'SNOW',   sky:[.85,.90,.99], top:[.40,.58,.90], ground:[.52,.56,.64],
-   zombie:.30, animal:.70, tree:.18, conifer:.85},
-];
-let currentSky      = [.58,.76,.97];
-let currentSkyTop   = [.20,.42,.86];
-let currentGround   = [.34,.40,.22];
-let currentBiomeName = 'PLAINS';
-const FOG_DENSITY = .0012;
-const TERRAIN = {k:10, p:10, m:10, seed:1.36};
-
-/* ════════════════════════════════════════════════════════════
-   3 · SHADERS
-   ════════════════════════════════════════════════════════════ */
-const COMMON_GLSL = `
-uniform vec3  u_sunDir, u_sunColor, u_skyTop, u_skyHorizon, u_groundColor;
-uniform float u_exposure;
-vec3 aces(vec3 x) {
-    const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
-vec3 toSRGB(vec3 c) { return pow(max(c, 0.0), vec3(1.0 / 2.2)); }
-vec3 skyColor(vec3 dir) {
-    vec3 d = normalize(dir);
-    float h  = d.y;
-    float sd = max(dot(d, normalize(u_sunDir)), 0.0);
-    float t  = clamp(h * 1.4 + 0.06, 0.0, 1.0);
-    vec3 sky = mix(u_skyHorizon, u_skyTop, pow(t, 0.62));
-    sky = mix(u_skyHorizon * 0.72, sky, smoothstep(-0.16, 0.05, h));
-    sky += u_sunColor * pow(sd, 12.0) * 0.30;
-    sky += u_sunColor * smoothstep(0.9985, 0.9996, sd) * 10.0;
-    return sky;
-}
-vec3 hemiAmbient(vec3 N) {
-    return mix(u_groundColor, u_skyTop, clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
-}
-`;
-
-const terrainGLSL = `
-uniform vec4 u_edits[32];
-uniform int  u_editCount;
-uniform float u_blocky, u_blockSize, u_mode;
-float f(float x, float s, float k, float p) {
-    float val = 45731.0 * cos(1e5 * floor(x) + s);
-    return (k * mod(val, 2.0)) / p;
-}
-float g(float a, float b, float c, float d, float x) {
-    return -0.5 * (b - d) * cos(3.1415926 * (x - c) / (a - c)) + 0.5 * (b + d);
-}
-float h(float x, float s, float k, float p) {
-    return g(floor(x), f(x, s, k, p), floor(x) + 1.0, f(x + 1.0, s, k, p), x);
-}
-float i(float x, float y, float s, float k, float p) {
-    float a = floor(x);
-    float b = h(y, a + 45731.0 * s, k, p);
-    float c = a + 1.0;
-    float d = h(y, floor(x + 1.0) + 45731.0 * s, k, p);
-    return g(a, b, c, d, x);
-}
-float voxel_round(float v) { return floor(v / u_blockSize + 0.5) * u_blockSize; }
-float terrain_height_raw(vec2 pos, float k, float p, float m, float s) {
-    vec2 scaled = pos / m;
-    float height = k * i(scaled.x, scaled.y, s, k, p);
-    for (int n = 0; n < 32; n++) {
-        if (n >= u_editCount) break;
-        vec4 e = u_edits[n];
-        height += e.w * (1.0 - smoothstep(0.0, e.z, length(pos - e.xy)));
-    }
-    return height;
-}
-float terrain_height(vec2 pos, float k, float p, float m, float s) {
-    bool isBlocky = u_blocky > 0.5;
-    vec2 samplePos = isBlocky ? (floor(pos / u_blockSize) + 0.5) * u_blockSize : pos;
-    float height = terrain_height_raw(samplePos, k, p, m, s);
-    if (isBlocky) height = voxel_round(height);
-    return height;
-}
-float block_height(vec2 centre, float k, float p, float m, float s) {
-    return voxel_round(terrain_height_raw(centre, k, p, m, s));
-}
-float terrain_height_mode(vec2 pos, float k, float p, float m, float s) {
-    if (u_mode > 1.5) {
-        vec2 c = (floor(pos / u_blockSize) + 0.5) * u_blockSize;
-        return block_height(c, k, p, m, s);
-    }
-    return terrain_height(pos, k, p, m, s);
-}
-`;
-
-const biomeGLSL = `
-float bnoise(vec2 p) {
-    return sin(p.x * 0.0125) * cos(p.y * 0.0107)
-         + 0.5  * sin(p.x * 0.0310 + 1.7) * cos(p.y * 0.0265 - 0.9)
-         + 0.25 * sin(p.x * 0.0710 + 4.1) * cos(p.y * 0.0663 + 2.2);
-}
-vec3 biome_tint(vec2 p, float y) {
-    float t = bnoise(p + vec2(1234.5, 567.8));
-    float m = bnoise(p * 1.3 + vec2(-987.6, 321.4));
-    vec3 cPlains = vec3(0.55, 0.80, 0.42);
-    vec3 cForest = vec3(0.30, 0.60, 0.30);
-    vec3 cDesert = vec3(0.94, 0.85, 0.56);
-    vec3 cSnow   = vec3(0.95, 0.97, 1.00);
-    vec3 cRock   = vec3(0.56, 0.57, 0.59);
-    float snow   = 1.0 - smoothstep(-0.45, -0.05, t);
-    float desert = smoothstep(0.10, 0.50, t) * (1.0 - smoothstep(-0.25, 0.10, m));
-    float forest = smoothstep(0.05, 0.45, m);
-    float plains = 1.0;
-    float sum = snow + desert + forest + plains;
-    vec3 c = (cPlains * plains + cForest * forest + cDesert * desert + cSnow * snow) / sum;
-    c = mix(c, cRock, smoothstep(12.0, 18.0, y) * (1.0 - snow));
-    c = mix(c, cSnow, smoothstep(17.0, 20.5, y));
-    return c;
-}
-`;
-
-const VS_TERRAIN = `#version 300 es
-precision highp float;
-uniform mat4 u_modelViewMatrix, u_projectionMatrix;
-uniform float u_k, u_p, u_m, u_S_seed;
-uniform vec2  u_cameraPos;
-uniform float u_gridSize;
-uniform float u_baseCell;
-uniform int   u_level;
-out highp vec2 v_uv;
-out highp vec3 v_worldPos, v_normal;
-${terrainGLSL}
-const int VERTS_PER_COLUMN = 30;
-const int CLIP_N = 128;
-void main() {
-    if (u_mode > 1.5) {
-        int gridSize = int(u_gridSize);
-        int columnID = gl_VertexID / VERTS_PER_COLUMN;
-        int localID  = gl_VertexID % VERTS_PER_COLUMN;
-        int cx = columnID / gridSize;
-        int cz = columnID % gridSize;
-        float B = u_blockSize * exp2(float(u_level));
-        float H = 0.5 * B;
-        vec2 camBlock = u_cameraPos / B;
-        vec2 origin = floor(camBlock) - vec2(float(gridSize) * 0.5);
-        if (u_level > 0) {
-            int hc = gridSize / 2;
-            int hr = gridSize / 4 - 1;
-            if (cx >= hc - hr && cx < hc + hr && cz >= hc - hr && cz < hc + hr) {
-                gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-                v_uv = vec2(0.0); v_worldPos = vec3(0.0); v_normal = vec3(0.0, 1.0, 0.0);
-                return;
-            }
-        }
-        vec2 bp = origin + vec2(float(cx), float(cz));
-        vec2 c  = (bp + 0.5) * B;
-        float hSelf = block_height(c, u_k, u_p, u_m, u_S_seed);
-        float texScale = B * 2.0;
-        vec3 pos; vec2 uv; vec3 nrm;
-        if (localID < 6) {
-            vec2 o;
-            if (localID == 0) o = vec2(-H,-H);
-            else if (localID == 1) o = vec2(H,-H);
-            else if (localID == 2) o = vec2(H,H);
-            else if (localID == 3) o = vec2(-H,-H);
-            else if (localID == 4) o = vec2(H,H);
-            else o = vec2(-H,H);
-            pos = vec3(c.x + o.x, hSelf, c.y + o.y);
-            uv  = vec2(pos.x, pos.z) / texScale;
-            nrm = vec3(0.0, 1.0, 0.0);
-        } else {
-            int faceID = (localID - 6) / 6;
-            int vid    = (localID - 6) - faceID * 6;
-            vec2 nOff;
-            if (faceID == 0) nOff = vec2(B,0);
-            else if (faceID == 1) nOff = vec2(-B,0);
-            else if (faceID == 2) nOff = vec2(0,B);
-            else nOff = vec2(0,-B);
-            float hN = block_height(c + nOff, u_k, u_p, u_m, u_S_seed);
-            float y0 = hN, y1 = hSelf;
-            vec3 BL, BR, TR, TL;
-            if (faceID == 0) { BL = vec3(c.x+H,y0,c.y+H); BR = vec3(c.x+H,y0,c.y-H); TR = vec3(c.x+H,y1,c.y-H); TL = vec3(c.x+H,y1,c.y+H); }
-            else if (faceID == 1) { BL = vec3(c.x-H,y0,c.y-H); BR = vec3(c.x-H,y0,c.y+H); TR = vec3(c.x-H,y1,c.y+H); TL = vec3(c.x-H,y1,c.y-H); }
-            else if (faceID == 2) { BL = vec3(c.x-H,y0,c.y+H); BR = vec3(c.x+H,y0,c.y+H); TR = vec3(c.x+H,y1,c.y+H); TL = vec3(c.x-H,y1,c.y+H); }
-            else { BL = vec3(c.x+H,y0,c.y-H); BR = vec3(c.x-H,y0,c.y-H); TR = vec3(c.x-H,y1,c.y-H); TL = vec3(c.x+H,y1,c.y-H); }
-            vec3 v;
-            if (vid == 0) v = BL; else if (vid == 1) v = TL; else if (vid == 2) v = TR;
-            else if (vid == 3) v = BL; else if (vid == 4) v = TR; else v = BR;
-            if (hN >= hSelf - 0.001) v = vec3(c.x, hSelf, c.y);
-            pos = v;
-            if (faceID == 0) nrm = vec3(1,0,0);
-            else if (faceID == 1) nrm = vec3(-1,0,0);
-            else if (faceID == 2) nrm = vec3(0,0,1);
-            else nrm = vec3(0,0,-1);
-            if (faceID == 0 || faceID == 1) uv = vec2(pos.z, pos.y) / texScale;
-            else uv = vec2(pos.x, pos.y) / texScale;
-        }
-        v_uv = uv; v_worldPos = pos; v_normal = nrm;
-        gl_Position = u_projectionMatrix * u_modelViewMatrix * vec4(pos, 1.0);
-        return;
-    }
-    int quadID = gl_VertexID / 6;
-    int vid    = gl_VertexID % 6;
-    int ix = quadID % CLIP_N;
-    int iz = quadID / CLIP_N;
-    float cell  = u_baseCell * exp2(float(u_level));
-    float halfN = float(CLIP_N) * 0.5;
-    vec2 center = floor(u_cameraPos / cell) * cell;
-    vec2 origin = center - vec2(halfN) * cell;
-    if (u_level > 0) {
-        int hc = CLIP_N / 2;
-        int hr = CLIP_N / 4 - 2;
-        if (ix >= hc - hr && ix < hc + hr && iz >= hc - hr && iz < hc + hr) {
-            gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-            v_uv = vec2(0.0); v_worldPos = vec3(0.0); v_normal = vec3(0.0, 1.0, 0.0);
-            return;
-        }
-    }
-    vec2 o;
-    if      (vid == 0) o = vec2(0.0, 0.0);
-    else if (vid == 1) o = vec2(1.0, 0.0);
-    else if (vid == 2) o = vec2(1.0, 1.0);
-    else if (vid == 3) o = vec2(0.0, 0.0);
-    else if (vid == 4) o = vec2(1.0, 1.0);
-    else               o = vec2(0.0, 1.0);
-    vec2 worldPos = origin + (vec2(float(ix), float(iz)) + o) * cell;
-    float height = terrain_height(worldPos, u_k, u_p, u_m, u_S_seed);
-    vec3 pos = vec3(worldPos.x, height, worldPos.y);
-    float eps = max(cell, 0.5);
-    float hL = terrain_height(worldPos - vec2(eps, 0.0), u_k, u_p, u_m, u_S_seed);
-    float hR = terrain_height(worldPos + vec2(eps, 0.0), u_k, u_p, u_m, u_S_seed);
-    float hD = terrain_height(worldPos - vec2(0.0, eps), u_k, u_p, u_m, u_S_seed);
-    float hU = terrain_height(worldPos + vec2(0.0, eps), u_k, u_p, u_m, u_S_seed);
-    v_normal = normalize(vec3(hL - hR, 2.0 * eps, hD - hU));
-    v_uv = worldPos / 1.1;
-    v_worldPos = pos;
-    gl_Position = u_projectionMatrix * u_modelViewMatrix * vec4(pos, 1.0);
-}
-`;
-
-const FS_TERRAIN = `#version 300 es
-precision highp float;
-precision highp int;
-in highp vec2 v_uv;
-in highp vec3 v_worldPos, v_normal;
-uniform sampler2D u_texture;
-uniform vec3  u_cameraPosition;
-uniform float u_fogDensity;
-uniform float u_shadows;
-uniform float u_k, u_p, u_m, u_S_seed;
-out vec4 outColor;
-${terrainGLSL}
-${biomeGLSL}
-${COMMON_GLSL}
-float terrainShadow(vec3 p, vec3 L) {
-    if (u_shadows < 0.5) return 1.0;
-    float t    = 2.0 + fract(sin(dot(p.xz, vec2(12.9898, 78.233))) * 43758.5453) * 2.5;
-    float step = 2.0;
-    for (int i = 0; i < 10; i++) {
-        vec3 sp = p + L * t;
-        float h = terrain_height_mode(sp.xz, u_k, u_p, u_m, u_S_seed);
-        if (sp.y < h - 0.06) return 0.0;
-        t    += step;
-        step *= 1.45;
-    }
-    return 1.0;
-}
-void main() {
-    vec3 texel  = texture(u_texture, v_uv).rgb;
-    vec3 albedo = pow(max(texel, 0.0), vec3(2.2));
-    albedo *= pow(biome_tint(v_worldPos.xz, v_worldPos.y), vec3(2.2));
-    vec3 N = normalize(v_normal);
-    vec3 L = normalize(u_sunDir);
-    vec3 V = normalize(u_cameraPosition - v_worldPos);
-    vec3 Hv = normalize(L + V);
-    float dist   = length(v_worldPos - u_cameraPosition);
-    float shadow = (dist < 300.0) ? terrainShadow(v_worldPos + N * 0.4, L) : 1.0;
-    float ndl  = dot(N, L);
-    float diff = clamp((ndl + 0.12) / 1.12, 0.0, 1.0) * shadow;
-    vec3 ambient = hemiAmbient(N);
-    vec3 color   = albedo * (ambient * 0.55 + u_sunColor * diff * 1.15);
-    float spec = pow(max(dot(N, Hv), 0.0), 42.0) * 0.10 * shadow;
-    color += u_sunColor * spec;
-    float fog = clamp(1.0 - exp(-dist * u_fogDensity), 0.0, 1.0);
-    color = mix(color, skyColor(-V), fog);
-    outColor = vec4(toSRGB(aces(color * u_exposure)), 1.0);
-}
-`;
-
-const VS_PROBE = `#version 300 es
-precision highp float;
-uniform vec2 u_probeOrigin;
-uniform float u_probeCell;
-uniform int u_probeN;
-uniform float u_k, u_p, u_m, u_S_seed;
-out float v_height;
-${terrainGLSL}
-void main() {
-    int n = u_probeN;
-    int id = gl_VertexID;
-    int ix = id % n;
-    int iz = id / n;
-    vec2 wp = u_probeOrigin + vec2(float(ix), float(iz)) * u_probeCell;
-    v_height = terrain_height_mode(wp, u_k, u_p, u_m, u_S_seed);
-    float fx = (float(ix) + 0.5) / float(n);
-    float fz = (float(iz) + 0.5) / float(n);
-    gl_Position = vec4(fx * 2.0 - 1.0, fz * 2.0 - 1.0, 0.0, 1.0);
-    gl_PointSize = 1.0;
-}
-`;
-const FS_PROBE = `#version 300 es
-precision highp float;
-in float v_height;
-out vec4 outColor;
-void main() { outColor = vec4(v_height, 0.0, 0.0, 1.0); }
-`;
-
-const VS_SKY = `#version 300 es
-precision highp float;
-out vec2 v_ndc;
-void main() {
-    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
-    v_ndc = p * 2.0 - 1.0;
-    gl_Position = vec4(v_ndc, 1.0, 1.0);
-}
-`;
-const FS_SKY = `#version 300 es
-precision highp float;
-in vec2 v_ndc;
-uniform mat4 u_invViewProj;
-out vec4 outColor;
-${COMMON_GLSL}
-void main() {
-    vec4 p0 = u_invViewProj * vec4(v_ndc, -1.0, 1.0);
-    vec4 p1 = u_invViewProj * vec4(v_ndc,  1.0, 1.0);
-    vec3 dir = normalize(p1.xyz / p1.w - p0.xyz / p0.w);
-    vec3 col = skyColor(dir);
-    outColor = vec4(toSRGB(aces(col * u_exposure)), 1.0);
-}
-`;
-
-const VS_MOB = `#version 300 es
-precision highp float;
-layout(location = 0) in vec3 a_position;
-layout(location = 1) in vec3 a_normal;
-layout(location = 2) in vec3 a_color;
-uniform mat4 u_projectionMatrix, u_modelViewMatrix;
-out vec3 v_normal, v_color, v_worldPos;
-void main() {
-    v_normal = a_normal; v_color = a_color; v_worldPos = a_position;
-    gl_Position = u_projectionMatrix * u_modelViewMatrix * vec4(a_position, 1.0);
-}
-`;
-const FS_MOB = `#version 300 es
-precision highp float;
-in vec3 v_normal, v_color, v_worldPos;
-uniform vec3  u_cameraPosition;
-uniform float u_fogDensity;
-out vec4 outColor;
-${COMMON_GLSL}
-void main() {
-    vec3 albedo = pow(max(v_color, 0.0), vec3(2.2));
-    vec3 N = normalize(v_normal);
-    vec3 L = normalize(u_sunDir);
-    vec3 V = normalize(u_cameraPosition - v_worldPos);
-    vec3 Hv = normalize(L + V);
-    float wrap = clamp((max(dot(N, L), 0.0) + 0.25) / 1.25, 0.0, 1.0);
-    vec3 color = albedo * (hemiAmbient(N) * 0.75 + u_sunColor * wrap * 1.05);
-    color += u_sunColor * pow(max(dot(N, Hv), 0.0), 24.0) * 0.04;
-    float dist = length(v_worldPos - u_cameraPosition);
-    float fog  = clamp(1.0 - exp(-dist * u_fogDensity), 0.0, 1.0);
-    color = mix(color, skyColor(-V), fog);
-    outColor = vec4(toSRGB(aces(color * u_exposure)), 1.0);
-}
-`;
-
-const VS_TREE = `#version 300 es
-precision highp float;
-layout(location = 0) in vec3 a_position;
-layout(location = 1) in vec3 a_normal;
-layout(location = 2) in vec3 a_color;
-layout(location = 3) in vec3 a_offset;
-layout(location = 4) in vec4 a_params;
-uniform mat4 u_projectionMatrix, u_modelViewMatrix;
-uniform vec3  u_cameraPosition;
-uniform float u_time;
-uniform float u_fadeStart, u_fadeEnd;
-out vec3 v_normal, v_color, v_worldPos;
-void main() {
-    float sxz = a_params.x, sy = a_params.y, yaw = a_params.z, cv = a_params.w;
-    float d    = distance(a_offset.xz, u_cameraPosition.xz);
-    float fade = 1.0 - smoothstep(u_fadeStart, u_fadeEnd, d);
-    if (fade < 0.02) {
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-        v_normal = vec3(0,1,0); v_color = vec3(0); v_worldPos = vec3(0);
-        return;
-    }
-    float c = cos(yaw), s = sin(yaw);
-    float fs = 0.35 + 0.65 * fade;
-    vec3 p = vec3(a_position.x * sxz * fs, a_position.y * sy * fs, a_position.z * sxz * fs);
-    vec3 n = a_normal;
-    vec3 rp = vec3(p.x * c - p.z * s, p.y, p.x * s + p.z * c);
-    vec3 rn = vec3(n.x * c - n.z * s, n.y, n.x * s + n.z * c);
-    float hf = clamp(a_position.y, 0.0, 1.0); hf *= hf;
-    float phase = u_time * 1.6 + a_offset.x * 0.21 + a_offset.z * 0.17;
-    float swayAmp = sy * 0.022;
-    rp.xz += vec2(sin(phase), cos(phase * 0.83)) * swayAmp * hf * fade;
-    vec3 world = rp + a_offset;
-    v_worldPos = world;
-    v_normal   = rn;
-    float tint = 0.82 + cv * 0.36;
-    v_color = a_color * vec3(tint * (0.94 + 0.12 * cv), tint, tint * (0.96 - 0.10 * cv));
-    gl_Position = u_projectionMatrix * u_modelViewMatrix * vec4(world, 1.0);
-}
-`;
-
-const FS_TREE = `#version 300 es
-precision highp float;
-in vec3 v_normal, v_color, v_worldPos;
-uniform vec3  u_cameraPosition;
-uniform float u_fogDensity;
-out vec4 outColor;
-${COMMON_GLSL}
-void main() {
-    vec3 albedo = pow(max(v_color, 0.0), vec3(2.2));
-    vec3 N = normalize(v_normal);
-    vec3 L = normalize(u_sunDir);
-    vec3 V = normalize(u_cameraPosition - v_worldPos);
-    vec3 Hv = normalize(L + V);
-    float wrap = clamp((max(dot(N, L), 0.0) + 0.22) / 1.22, 0.0, 1.0);
-    vec3 color = albedo * (hemiAmbient(N) * 0.80 + u_sunColor * wrap * 1.05);
-    color += u_sunColor * pow(max(dot(N, Hv), 0.0), 20.0) * 0.035;
-    float dist = length(v_worldPos - u_cameraPosition);
-    float fog  = clamp(1.0 - exp(-dist * u_fogDensity), 0.0, 1.0);
-    color = mix(color, skyColor(-V), fog);
-    outColor = vec4(toSRGB(aces(color * u_exposure)), 1.0);
-}
-`;
-
-/* ════════════════════════════════════════════════════════════
-   4 · GL HELPERS
-   ════════════════════════════════════════════════════════════ */
-function compile(type, src) {
-  const s = gl.createShader(type);
-  gl.shaderSource(s, src); gl.compileShader(s);
-  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
-    console.error('shader:', gl.getShaderInfoLog(s));
-  return s;
-}
-function link(vs, fs) {
-  const p = gl.createProgram();
-  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
-  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
-  gl.linkProgram(p);
-  if (!gl.getProgramParameter(p, gl.LINK_STATUS))
-    console.error('link:', gl.getProgramInfoLog(p));
-  return p;
-}
-function locs(prog, names) {
-  const o = {};
-  for (const n of names) o[n] = gl.getUniformLocation(prog, n);
-  return o;
-}
-const LIGHT_NAMES = ['u_sunDir','u_sunColor','u_skyTop','u_skyHorizon','u_groundColor','u_exposure'];
-
-const program      = link(VS_TERRAIN, FS_TERRAIN);
-const probeProgram = link(VS_PROBE,   FS_PROBE);
-const mobProgram   = link(VS_MOB,     FS_MOB);
-const treeProgram  = link(VS_TREE,    FS_TREE);
-const skyProgram   = link(VS_SKY,     FS_SKY);
-
-const main = locs(program, [
-  'u_projectionMatrix','u_modelViewMatrix','u_cameraPos','u_cameraPosition',
-  'u_fogDensity','u_baseCell','u_level','u_gridSize','u_texture',
-  'u_k','u_p','u_m','u_S_seed','u_edits','u_editCount','u_blocky','u_blockSize','u_mode',
-  'u_shadows', ...LIGHT_NAMES
-]);
-const probe = locs(probeProgram, [
-  'u_probeOrigin','u_probeCell','u_probeN','u_k','u_p','u_m','u_S_seed',
-  'u_edits','u_editCount','u_blocky','u_blockSize','u_mode','u_gridSize'
-]);
-const mobU = locs(mobProgram, [
-  'u_projectionMatrix','u_modelViewMatrix','u_cameraPosition','u_fogDensity', ...LIGHT_NAMES
-]);
-const treeU = locs(treeProgram, [
-  'u_projectionMatrix','u_modelViewMatrix','u_cameraPosition','u_fogDensity','u_time',
-  'u_fadeStart','u_fadeEnd', ...LIGHT_NAMES
-]);
-const skyU = locs(skyProgram, ['u_invViewProj', ...LIGHT_NAMES]);
-
-const projectionMatrix = mat4.create();
-mat4.perspective(projectionMatrix, Math.PI/4, canvas.width/canvas.height, 0.5, 250000);
-
-function pushLighting(prog, L) {
-  gl.useProgram(prog);
-  gl.uniform3f(L.u_sunDir,      ...SUN_DIR);
-  gl.uniform3f(L.u_sunColor,    ...SUN_COLOR);
-  gl.uniform3f(L.u_skyTop,      ...currentSkyTop);
-  gl.uniform3f(L.u_skyHorizon,  ...currentSky);
-  gl.uniform3f(L.u_groundColor, ...currentGround);
-  gl.uniform1f(L.u_exposure,    EXPOSURE);
-}
-function pushLightingAll() {
-  pushLighting(program,      main);
-  pushLighting(mobProgram,   mobU);
-  pushLighting(treeProgram,  treeU);
-  pushLighting(skyProgram,   skyU);
-  gl.useProgram(program);
-}
-
-gl.clearColor(...currentSky, 1);
-gl.enable(gl.DEPTH_TEST);
-gl.enable(gl.CULL_FACE);
-gl.cullFace(gl.BACK);
-gl.frontFace(gl.CW);
-
-function pushTerrainUniforms() {
-  gl.useProgram(program);
-  gl.uniform1f(main.u_k, TERRAIN.k);
-  gl.uniform1f(main.u_p, TERRAIN.p);
-  gl.uniform1f(main.u_m, TERRAIN.m);
-  gl.uniform1f(main.u_S_seed, TERRAIN.seed);
-  gl.useProgram(probeProgram);
-  gl.uniform1f(probe.u_k, TERRAIN.k);
-  gl.uniform1f(probe.u_p, TERRAIN.p);
-  gl.uniform1f(probe.u_m, TERRAIN.m);
-  gl.uniform1f(probe.u_S_seed, TERRAIN.seed);
-  gl.useProgram(program);
-}
-pushTerrainUniforms();
-pushLightingAll();
-
-const editData = new Float32Array(MAX_EDITS * 4);
-function uploadEdits(L) {
-  editData.fill(0);
-  for (let i = 0; i < edits.length; i++) editData.set(edits[i], i * 4);
-  gl.uniform4fv(L.u_edits, editData);
-  gl.uniform1i(L.u_editCount, edits.length);
-}
-function uploadTerrainState(L, gridSize) {
-  gl.uniform1f(L.u_blocky,    modeIndex === 1 ? 1 : 0);
-  gl.uniform1f(L.u_blockSize, blockSize);
-  gl.uniform1f(L.u_mode,      modeIndex);
-  if (L.u_gridSize && gridSize !== undefined) gl.uniform1f(L.u_gridSize, gridSize);
-}
-
-/* ════════════════════════════════════════════════════════════
-   5 · HEIGHTMAP PROBE
-   ════════════════════════════════════════════════════════════ */
-if (!gl.getExtension('EXT_color_buffer_float'))
-  console.warn('EXT_color_buffer_float unavailable');
-
-const HMAP_N     = 256;
-const HMAP_WORLD = 384;
-const HMAP_CELL  = HMAP_WORLD / HMAP_N;
-const hmapData   = new Float32Array(HMAP_N * HMAP_N * 4);
-let hmapOriginX = 0, hmapOriginZ = 0;
-
-const probeTex = gl.createTexture();
-gl.bindTexture(gl.TEXTURE_2D, probeTex);
-gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, HMAP_N, HMAP_N, 0, gl.RGBA, gl.FLOAT, null);
-for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST],
-                      [gl.TEXTURE_MAG_FILTER, gl.NEAREST],
-                      [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE],
-                      [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]])
-  gl.texParameteri(gl.TEXTURE_2D, k, v);
-
-const probeFBO = gl.createFramebuffer();
-gl.bindFramebuffer(gl.FRAMEBUFFER, probeFBO);
-gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, probeTex, 0);
-gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-function probeBegin() {
-  gl.bindFramebuffer(gl.FRAMEBUFFER, probeFBO);
-  gl.viewport(0, 0, HMAP_N, HMAP_N);
-  gl.useProgram(probeProgram);
-  uploadEdits(probe);
-  uploadTerrainState(probe);
-  gl.bindVertexArray(null);
-  gl.disable(gl.DEPTH_TEST);
-  gl.disable(gl.CULL_FACE);
-}
-function probeEnd() {
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-  gl.enable(gl.DEPTH_TEST);
-  gl.enable(gl.CULL_FACE);
-  gl.useProgram(program);
-}
-
-let lastHeightmapTime = -1e9;
-const HMAP_INTERVAL_MS = 100;
-
-function updateHeightmap(force) {
-  const now = performance.now();
-  if (!force && now - lastHeightmapTime < HMAP_INTERVAL_MS) return;
-  lastHeightmapTime = now;
-  hmapOriginX = targetPosition[0] - HMAP_WORLD * .5;
-  hmapOriginZ = targetPosition[2] - HMAP_WORLD * .5;
-  probeBegin();
-  gl.uniform1i(probe.u_probeN, HMAP_N);
-  gl.uniform2f(probe.u_probeOrigin, hmapOriginX, hmapOriginZ);
-  gl.uniform1f(probe.u_probeCell, HMAP_CELL);
-  gl.drawArrays(gl.POINTS, 0, HMAP_N * HMAP_N);
-  gl.readPixels(0, 0, HMAP_N, HMAP_N, gl.RGBA, gl.FLOAT, hmapData);
-  probeEnd();
-}
-
-function cachedHeightAt(x, z) {
-  if (modeIndex === 1 || modeIndex === 2)
-    { x = (Math.floor(x/blockSize) + .5) * blockSize;
-      z = (Math.floor(z/blockSize) + .5) * blockSize; }
-  const fx = (x - hmapOriginX) / HMAP_CELL;
-  const fz = (z - hmapOriginZ) / HMAP_CELL;
-  let ix = Math.floor(fx), iz = Math.floor(fz);
-  let tx = fx - ix, tz = fz - iz;
-  if (ix < 0) { ix = 0; tx = 0; }
-  if (iz < 0) { iz = 0; tz = 0; }
-  if (ix > HMAP_N - 2) { ix = HMAP_N - 2; tx = 1; }
-  if (iz > HMAP_N - 2) { iz = HMAP_N - 2; tz = 1; }
-  const i00 = (iz * HMAP_N + ix) * 4;
-  const i10 = i00 + 4;
-  const i01 = i00 + HMAP_N * 4;
-  const i11 = i01 + 4;
-  const h0 = hmapData[i00] * (1 - tx) + hmapData[i10] * tx;
-  const h1 = hmapData[i01] * (1 - tx) + hmapData[i11] * tx;
-  return h0 * (1 - tz) + h1 * tz;
-}
-
-const bnoise = (x, y) =>
-    Math.sin(x * .0125) * Math.cos(y * .0107)
-  + .5  * Math.sin(x * .0310 + 1.7) * Math.cos(y * .0265 - .9)
-  + .25 * Math.sin(x * .0710 + 4.1) * Math.cos(y * .0663 + 2.2);
-
-const smoothstepJS = (e0, e1, x) => {
-  let t = (x - e0) / (e1 - e0);
-  t = t < 0 ? 0 : t > 1 ? 1 : t;
-  return t * t * (3 - 2 * t);
-};
-
-function biomeWeights(x, z) {
-  const t = bnoise(x + 1234.5, z + 567.8);
-  const m = bnoise(x * 1.3 - 987.6, z * 1.3 + 321.4);
-  const snow   = 1 - smoothstepJS(-.45, -.05, t);
-  const desert = smoothstepJS(.10, .50, t) * (1 - smoothstepJS(-.25, .10, m));
-  const forest = smoothstepJS(.05, .45, m);
-  const plains = 1;
-  const sum = snow + desert + forest + plains;
-  return [plains/sum, forest/sum, desert/sum, snow/sum];
-}
-
-/* ════════════════════════════════════════════════════════════
-   6 · MOBS
-   ════════════════════════════════════════════════════════════ */
-const mobs = [];
-const MAX_MOBS = 28;
-const PLAYER_RADIUS = .5;
-const DESPAWN_DIST = 145;
-const MOB_MAX_BOXES = 8;
-const VERTS_PER_BOX = 36;
-const FLOATS_PER_VERT = 9;
-let nextMobId = 1;
-let spawnTimer = 1;
-let isMobHost = true;
-
-const ANIMAL_SKINS = [
-  {body:[.93,.93,.91], head:[.84,.81,.76]},
-  {body:[.56,.38,.24], head:[.44,.29,.18]},
-  {body:[.93,.62,.66], head:[.88,.53,.57]},
-];
-const BOX_FACES = [
-  [ 1, 0, 0,   1,-1,-1,  1,-1, 1,  1, 1, 1,   1,-1,-1,  1, 1, 1,  1, 1,-1],
-  [-1, 0, 0,  -1,-1, 1, -1,-1,-1, -1, 1,-1,  -1,-1, 1, -1, 1,-1, -1, 1, 1],
-  [ 0, 1, 0,  -1, 1,-1,  1, 1,-1,  1, 1, 1,  -1, 1,-1,  1, 1, 1, -1, 1, 1],
-  [ 0,-1, 0,  -1,-1, 1,  1,-1, 1,  1,-1,-1,  -1,-1, 1,  1,-1,-1, -1,-1,-1],
-  [ 0, 0, 1,  -1,-1, 1,  1,-1, 1,  1, 1, 1,  -1,-1, 1,  1, 1, 1, -1, 1, 1],
-  [ 0, 0,-1,   1,-1,-1, -1,-1,-1, -1, 1,-1,   1,-1,-1, -1, 1,-1,  1, 1,-1],
-];
-
-function spawnMob() {
-  const ang = Math.random() * Math.PI * 2;
-  const rad = 38 + Math.random() * 48;
-  const x = targetPosition[0] + Math.cos(ang) * rad;
-  const z = targetPosition[2] + Math.sin(ang) * rad;
-  const w = biomeWeights(x, z);
-  let zW = 0, aW = 0;
-  for (let i = 0; i < BIOMES.length; i++) {
-    zW += w[i] * BIOMES[i].zombie;
-    aW += w[i] * BIOMES[i].animal;
-  }
-  const isZombie = Math.random() < zW / (zW + aW);
-  const groundY = cachedHeightAt(x, z);
-  const base = {
-    id: nextMobId++, x, z, vx: 0, vy: 0, vz: 0,
-    yaw: Math.random() * Math.PI * 2,
-    targetX: x, targetY: groundY + .15, targetZ: z, targetYaw: 0,
-    wanderTimer: Math.random() * 3,
-    wanderAngle: Math.random() * Math.PI * 2,
-    wanderSpeed: 0,
-    walkPhase: Math.random() * 6.28,
-    hoverHeight: 0, hoverPhase: 0,
-  };
-  if (isZombie) {
-    mobs.push({...base, type:'zombie', skin:0, flying:false,
-      y: groundY + .15, radius:.45, speed:1.1, chase:3.6});
-  } else {
-    const flying = Math.random() < .30;
-    mobs.push({...base, type:'animal',
-      skin: Math.floor(Math.random() * ANIMAL_SKINS.length),
-      flying,
-      y: flying ? groundY + 12 + Math.random()*8 : groundY + .15,
-      radius: .62,
-      speed: flying ? 2.2 : 1.5,
-      chase: flying ? 5.0 : 4.2,
-      hoverHeight: 10 + Math.random()*8,
-      hoverPhase: Math.random() * Math.PI * 2});
-  }
-}
-function updateSpawning(dt) {
-  spawnTimer -= dt;
-  if (spawnTimer > 0) return;
-  spawnTimer = .8;
-  if (mobs.length < MAX_MOBS) spawnMob();
-}
-function updateMobs(dt) {
-  const px = targetPosition[0], pz = targetPosition[2];
-  for (let i = mobs.length - 1; i >= 0; i--) {
-    const m = mobs[i];
-    const dx = px - m.x, dz = pz - m.z;
-    let dist = Math.hypot(dx, dz);
-    if (dist > DESPAWN_DIST) { mobs.splice(i, 1); continue; }
-    if (dist < 1e-4) dist = 1e-4;
-    m.wanderTimer -= dt;
-    if (m.wanderTimer <= 0) {
-      m.wanderTimer = 2 + Math.random() * 4;
-      m.wanderAngle = Math.random() * Math.PI * 2;
-      m.wanderSpeed = Math.random() < .35 ? 0 : 1;
-    }
-    let wantX = 0, wantZ = 0;
-    if (m.type === 'zombie') {
-      if (dist < 30) { wantX = dx/dist * m.chase; wantZ = dz/dist * m.chase; }
-      else if (m.wanderSpeed) { wantX = Math.cos(m.wanderAngle)*m.speed; wantZ = Math.sin(m.wanderAngle)*m.speed; }
-    } else {
-      if (dist < 10) { wantX = -dx/dist * m.chase; wantZ = -dz/dist * m.chase; }
-      else if (m.wanderSpeed) { wantX = Math.cos(m.wanderAngle)*m.speed; wantZ = Math.sin(m.wanderAngle)*m.speed; }
-    }
-    const accel = 1 - Math.exp(-dt * 6);
-    m.vx += (wantX - m.vx) * accel;
-    m.vz += (wantZ - m.vz) * accel;
-    m.x  += m.vx * dt;
-    m.z  += m.vz * dt;
-    if (m.flying) {
-      const targetY = cachedHeightAt(m.x, m.z) + m.hoverHeight
-                    + Math.sin(m.hoverPhase += dt) * 1.6;
-      m.y += (targetY - m.y) * (1 - Math.exp(-dt * 3.5));
-      m.vy = 0;
-    } else {
-      m.vy += GRAVITY * dt;
-      m.y  += m.vy * dt;
-      const gy = cachedHeightAt(m.x, m.z);
-      if (m.y <= gy) { m.y = gy; m.vy = 0; }
-    }
-    const sp = Math.hypot(m.vx, m.vz);
-    if (sp > .12) { m.yaw = Math.atan2(m.vx, -m.vz); m.walkPhase += dt * sp * 3.2; }
-    else          { m.walkPhase += dt * .8; }
-  }
-  for (let i = 0; i < mobs.length; i++) {
-    for (let j = i + 1; j < mobs.length; j++) {
-      const a = mobs[i], b = mobs[j];
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const rr = a.radius + b.radius;
-      const d2 = dx*dx + dz*dz;
-      if (d2 < rr*rr && d2 > 1e-6) {
-        const d = Math.sqrt(d2);
-        const push = (rr - d) * .5;
-        const ux = dx/d, uz = dz/d;
-        a.x -= ux*push; a.z -= uz*push;
-        b.x += ux*push; b.z += uz*push;
-      }
-    }
-  }
-}
-function collidePlayerWithMobs() {
-  for (const m of mobs) {
-    const dx = targetPosition[0] - m.x;
-    const dz = targetPosition[2] - m.z;
-    const dy = targetPosition[1] - m.y;
-    const rr = m.radius + PLAYER_RADIUS;
-    const d2 = dx*dx + dz*dz;
-    if (d2 < rr*rr && Math.abs(dy) < 2.5) {
-      let d = Math.max(Math.sqrt(d2), 1e-4);
-      const ux = dx/d, uz = dz/d;
-      const push = rr - d;
-      targetPosition[0] += ux * push * .65;
-      targetPosition[2] += uz * push * .65;
-      m.x -= ux * push * .35;
-      m.z -= uz * push * .35;
-      if (!m.flying) m.y = Math.max(m.y, cachedHeightAt(m.x, m.z));
-    }
-  }
-}
-function pushRotBox(out, k, mx, my, mz, cos, sin,
-                    ox, oy, oz, hx, hy, hz, r, g, b) {
-  const cx = mx + ox * cos - oz * sin;
-  const cy = my + oy;
-  const cz = mz + ox * sin + oz * cos;
-  for (let fi = 0; fi < 6; fi++) {
-    const f = BOX_FACES[fi];
-    const rnx = f[0] * cos - f[2] * sin;
-    const rnz = f[0] * sin + f[2] * cos;
-    for (let vi = 0; vi < 6; vi++) {
-      const b3 = 3 + vi * 3;
-      const vx = f[b3] * hx, vy = f[b3+1] * hy, vz = f[b3+2] * hz;
-      out[k++] = cx + vx * cos - vz * sin;
-      out[k++] = cy + vy;
-      out[k++] = cz + vx * sin + vz * cos;
-      out[k++] = rnx; out[k++] = f[1]; out[k++] = rnz;
-      out[k++] = r; out[k++] = g; out[k++] = b;
-    }
-  }
-  return k;
-}
-function appendMob(out, k, m) {
-  const cos = Math.cos(m.yaw), sin = Math.sin(m.yaw);
-  const swing = Math.sin(m.walkPhase) * .22;
-  const B = (ox,oy,oz, hx,hy,hz, c) =>
-    pushRotBox(out, k, m.x, m.y, m.z, cos, sin, ox,oy,oz, hx,hy,hz, c[0],c[1],c[2]);
-  if (m.type === 'zombie') {
-    const skin  = [.30,.62,.34], shirt = [.18,.45,.52], pants = [.14,.18,.34];
-    k = B(-.15,.34, swing,.13,.34,.13, pants);
-    k = B( .15,.34,-swing,.13,.34,.13, pants);
-    k = B( 0, 1.10, 0, .30,.44,.17, shirt);
-    k = B(-.38,1.25,-.30,.10,.10,.38, skin);
-    k = B( .38,1.25,-.30,.10,.10,.38, skin);
-    k = B( 0, 1.75, 0, .26,.26,.26, skin);
-  } else {
-    const s = ANIMAL_SKINS[m.skin];
-    const b = s.body, h = s.head, lb = .7;
-    if (m.flying) {
-      const flap = Math.sin(m.walkPhase * 2) * .25;
-      const span = .9;
-      k = B(0, .85, 0, .28,.22,.55, b);
-      k = B(0, 1.00, -.72, .20,.20,.20, h);
-      k = B(-span*.75, .95+flap, 0, span*.5,.04,.35, h.map(v => v*.9));
-      k = B( span*.75, .95-flap, 0, span*.5,.04,.35, h.map(v => v*.9));
-    } else {
-      const leg = b.map(v => v*lb);
-      k = B(-.22,.28, swing+.38, .09,.28,.09, leg);
-      k = B( .22,.28,-swing+.38, .09,.28,.09, leg);
-      k = B(-.22,.28,-swing-.38,.09,.28,.09, leg);
-      k = B( .22,.28, swing-.38,.09,.28,.09, leg);
-      k = B(0,.82,0, .32,.28,.55, b);
-      k = B(0,.95,-.72, .22,.22,.22, h);
-    }
-  }
-  return k;
-}
-function appendRemotePlayer(out, k, rp) {
-  const cos = Math.cos(rp.yaw || 0), sin = Math.sin(rp.yaw || 0);
-  const c = rp.color || [.8,.4,.9];
-  k = pushRotBox(out, k, rp.x, rp.y, rp.z, cos, sin, 0, .9, 0, .35,.9,.35, c[0],c[1],c[2]);
-  k = pushRotBox(out, k, rp.x, rp.y, rp.z, cos, sin, 0, 2.05, 0, .28,.28,.28,
-                 c[0]*.85+.15, c[1]*.85+.15, c[2]*.85+.15);
-  return k;
-}
-const mobVertexData = new Float32Array(
-  (MAX_MOBS * MOB_MAX_BOXES + 32) * VERTS_PER_BOX * FLOATS_PER_VERT
-);
-const mobVBO = gl.createBuffer();
-const mobVAO = gl.createVertexArray();
-gl.bindVertexArray(mobVAO);
-gl.bindBuffer(gl.ARRAY_BUFFER, mobVBO);
-gl.bufferData(gl.ARRAY_BUFFER, mobVertexData.byteLength, gl.DYNAMIC_DRAW);
-const MOB_STRIDE = FLOATS_PER_VERT * 4;
-gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, MOB_STRIDE, 0);
-gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, MOB_STRIDE, 12);
-gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, MOB_STRIDE, 24);
-gl.bindVertexArray(null);
-function drawMobs() {
-  let k = 0;
-  for (const m of mobs) k = appendMob(mobVertexData, k, m);
-  const ids = Object.keys(remotePlayers);
-  for (let i = 0; i < ids.length && i < 16; i++)
-    if (remotePlayers[ids[i]]) k = appendRemotePlayer(mobVertexData, k, remotePlayers[ids[i]]);
-  if (!k) return;
-  gl.useProgram(mobProgram);
-  pushLighting(mobProgram, mobU);
-  gl.bindVertexArray(mobVAO);
-  gl.bindBuffer(gl.ARRAY_BUFFER, mobVBO);
-  gl.bufferSubData(gl.ARRAY_BUFFER, 0, mobVertexData, 0, k);
-  gl.uniformMatrix4fv(mobU.u_projectionMatrix, false, projectionMatrix);
-  gl.uniformMatrix4fv(mobU.u_modelViewMatrix,  false, modelViewMatrix);
-  gl.uniform3f(mobU.u_cameraPosition, ...position);
-  gl.uniform1f(mobU.u_fogDensity, FOG_DENSITY);
-  gl.disable(gl.CULL_FACE);
-  gl.drawArrays(gl.TRIANGLES, 0, k / FLOATS_PER_VERT);
-  gl.enable(gl.CULL_FACE);
-  gl.bindVertexArray(null);
-  gl.useProgram(program);
-}
-
-/* ════════════════════════════════════════════════════════════
-   6b · TREES
-   ════════════════════════════════════════════════════════════ */
-const TAU = Math.PI * 2;
-const TREE_CELL        = 6.5;
-const TREE_RADIUS      = 160;
-const TREE_MAX_INST    = 22000;
-const TREE_FADE_START  = 120;
-const TREE_FADE_END    = 170;
-const TREE_INST_FLOATS = 8;
-const TREE_STRIDE      = TREE_INST_FLOATS * 4;
-const TREE_EMERGENT   = 0;
-const TREE_CANOPY     = 1;
-const TREE_PALM       = 2;
-const TREE_UNDERSTORY = 3;
-const TREE_FERN       = 4;
-const TREE_TYPES      = 5;
-const TREE_NOMINAL_H = [42, 20, 30, 7, 2.2];
-const treeTypeVertStart = new Int32Array(TREE_TYPES);
-const treeTypeVertCount = new Int32Array(TREE_TYPES);
-const treeTypeCount     = new Int32Array(TREE_TYPES);
-
-function mulberry32(a) {
-  return function () {
-    a |= 0; a = a + 0x6D2B79F5 | 0;
-    let t = Math.imul(a ^ a >>> 15, 1 | a);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
-function makeTreeBuilder() {
-  const pos = [], nrm = [], col = [];
-  const unit  = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0]/l, v[1]/l, v[2]/l]; };
-  const tri = (a, b, c, n, ca, cb, cc) => {
-    const nn = unit(n);
-    pos.push(a[0],a[1],a[2], b[0],b[1],b[2], c[0],c[1],c[2]);
-    nrm.push(nn[0],nn[1],nn[2], nn[0],nn[1],nn[2], nn[0],nn[1],nn[2]);
-    col.push(ca[0],ca[1],ca[2], cb[0],cb[1],cb[2], cc[0],cc[1],cc[2]);
-  };
-  const quad = (a, b, c, d, n, ca, cb, cc, cd) => {
-    tri(a, b, c, n, ca, cb, cc); tri(a, c, d, n, ca, cc, cd);
-  };
-  return {
-    box(cx, cy, cz, hx, hy, hz, cLow, cHigh) {
-      const x0 = cx-hx, x1 = cx+hx, y0 = cy-hy, y1 = cy+hy, z0 = cz-hz, z1 = cz+hz;
-      quad([x1,y0,z1],[x1,y1,z1],[x1,y1,z0],[x1,y0,z0], [ 1, 0, 0], cLow,cLow,cHigh,cHigh);
-      quad([x0,y0,z0],[x0,y1,z0],[x0,y1,z1],[x0,y0,z1], [-1, 0, 0], cLow,cLow,cHigh,cHigh);
-      quad([x0,y1,z1],[x0,y1,z0],[x1,y1,z0],[x1,y1,z1], [ 0, 1, 0], cLow,cLow,cHigh,cHigh);
-      quad([x0,y0,z0],[x0,y0,z1],[x1,y0,z1],[x1,y0,z0], [ 0,-1, 0], cLow,cLow,cHigh,cHigh);
-      quad([x0,y0,z1],[x0,y1,z1],[x1,y1,z1],[x1,y0,z1], [ 0, 0, 1], cLow,cLow,cHigh,cHigh);
-      quad([x1,y0,z0],[x1,y1,z0],[x0,y1,z0],[x0,y0,z0], [ 0, 0,-1], cLow,cLow,cHigh,cHigh);
-    },
-    count() { return pos.length / 3; },
-    arrays() { return { pos, nrm, col }; }
-  };
-}
-const BARK_LO  = [0.14, 0.10, 0.06], BARK_HI  = [0.32, 0.22, 0.13];
-const LEAF_LO  = [0.07, 0.22, 0.06], LEAF_HI  = [0.24, 0.52, 0.14];
-const PALM_LO  = [0.06, 0.20, 0.05], PALM_HI  = [0.22, 0.48, 0.11];
-const UNDER_LO = [0.06, 0.20, 0.06], UNDER_HI = [0.22, 0.44, 0.14];
-const COCO_LO  = [0.16, 0.08, 0.04], COCO_HI  = [0.28, 0.15, 0.08];
-
-function buildTreeMesh(type) {
-  const B = makeTreeBuilder();
-  const rnd = mulberry32(0xBEEF + type * 9973);
-  if (type === TREE_EMERGENT) {
-    const trunkTop = 0.58, segs = 6;
-    for (let i = 0; i < segs; i++) {
-      const t0 = i / segs * trunkTop, t1 = (i + 1) / segs * trunkTop;
-      const w = 0.040 - i * 0.004;
-      B.box((rnd()-0.5)*0.006, (t0+t1)/2, (rnd()-0.5)*0.006, w, (t1-t0)/2, w, BARK_LO, BARK_HI);
-    }
-    for (let i = 0; i < 6; i++) {
-      const a = i / 6 * TAU + rnd() * 0.3;
-      const rx = Math.cos(a), rz = Math.sin(a), len = 0.075 + rnd() * 0.035;
-      B.box(rx*len*0.6, 0.022, rz*len*0.6, Math.abs(rx)*len*0.6+0.014, 0.022, Math.abs(rz)*len*0.6+0.014, BARK_LO, BARK_HI);
-    }
-    for (let i = 0; i < 4; i++) {
-      const a = i / 4 * TAU + rnd() * 0.5, y = 0.36 + rnd() * 0.18;
-      const rx = Math.cos(a), rz = Math.sin(a), len = 0.07 + rnd() * 0.035;
-      B.box(rx*len*0.5, y, rz*len*0.5, Math.abs(rx)*len*0.5+0.010, 0.012, Math.abs(rz)*len*0.5+0.010, BARK_LO, BARK_HI);
-    }
-    for (let i = 0; i < 22; i++) {
-      const a = rnd() * TAU, r = Math.pow(rnd(), 0.7) * 0.11;
-      const y = 0.53 + rnd() * 0.18, s = 0.028 + rnd() * 0.026;
-      B.box(Math.cos(a)*r, y, Math.sin(a)*r, s, s*(0.85+rnd()*0.3), s, LEAF_LO, LEAF_HI);
-    }
-    B.box(0, 0.72, 0, 0.032, 0.040, 0.032, LEAF_LO, LEAF_HI);
-    B.box(0, 0.77, 0, 0.022, 0.026, 0.022, LEAF_LO, LEAF_HI);
-  } else if (type === TREE_CANOPY) {
-    const trunkTop = 0.42, segs = 4;
-    for (let i = 0; i < segs; i++) {
-      const t0 = i / segs * trunkTop, t1 = (i + 1) / segs * trunkTop;
-      const w = 0.035 - i * 0.005;
-      B.box(0, (t0+t1)/2, 0, w, (t1-t0)/2, w, BARK_LO, BARK_HI);
-    }
-    for (let i = 0; i < 16; i++) {
-      const a = rnd() * TAU, r = Math.pow(rnd(), 0.7) * 0.10;
-      const y = 0.40 + rnd() * 0.20, s = 0.030 + rnd() * 0.024;
-      B.box(Math.cos(a)*r, y, Math.sin(a)*r, s, s*(0.85+rnd()*0.3), s, LEAF_LO, LEAF_HI);
-    }
-  } else if (type === TREE_PALM) {
-    const h = 0.82, segs = 8;
-    for (let i = 0; i < segs; i++) {
-      const t0 = i / segs * h, t1 = (i + 1) / segs * h;
-      const w = 0.030 - i * 0.0015;
-      B.box(Math.sin(i*1.3)*0.008, (t0+t1)/2, Math.cos(i*1.7)*0.008, w, (t1-t0)/2, w, BARK_LO, BARK_HI);
-    }
-    for (let i = 0; i < 8; i++) {
-      const a = i / 8 * TAU + rnd() * 0.2;
-      const rx = Math.cos(a), rz = Math.sin(a), len = 0.16 + rnd() * 0.05;
-      B.box(rx*len*0.5, h+0.015, rz*len*0.5, Math.abs(rx)*len*0.5+0.010, 0.008, Math.abs(rz)*len*0.5+0.010, PALM_LO, PALM_HI);
-    }
-    for (let i = 0; i < 3; i++) {
-      const a = i / 3 * TAU;
-      B.box(Math.cos(a)*0.045, h-0.035, Math.sin(a)*0.045, 0.018, 0.018, 0.018, COCO_LO, COCO_HI);
-    }
-  } else if (type === TREE_UNDERSTORY) {
-    const trunkTop = 0.22, segs = 3;
-    for (let i = 0; i < segs; i++) {
-      const t0 = i / segs * trunkTop, t1 = (i + 1) / segs * trunkTop;
-      const w = 0.028 - i * 0.006;
-      B.box(0, (t0+t1)/2, 0, w, (t1-t0)/2, w, BARK_LO, BARK_HI);
-    }
-    for (let i = 0; i < 10; i++) {
-      const a = rnd() * TAU, r = Math.pow(rnd(), 0.6) * 0.08;
-      const y = 0.18 + rnd() * 0.12, s = 0.024 + rnd() * 0.018;
-      B.box(Math.cos(a)*r, y, Math.sin(a)*r, s, s*(0.85+rnd()*0.3), s, UNDER_LO, UNDER_HI);
-    }
-  } else {
-    for (let i = 0; i < 9; i++) {
-      const a = i / 9 * TAU + rnd() * 0.4;
-      const rx = Math.cos(a), rz = Math.sin(a), len = 0.10 + rnd() * 0.03;
-      const y = 0.05 + rnd() * 0.08;
-      B.box(rx*len*0.5, y, rz*len*0.5, Math.abs(rx)*len*0.5+0.008, 0.006, Math.abs(rz)*len*0.5+0.008, LEAF_LO, LEAF_HI);
-    }
-    B.box(0, 0.018, 0, 0.030, 0.018, 0.030, LEAF_LO, LEAF_HI);
-  }
-  return B;
-}
-
-(function buildAllTreeMeshes() {
-  const allPos = [], allNrm = [], allCol = [];
-  let vertOffset = 0;
-  for (let t = 0; t < TREE_TYPES; t++) {
-    const a = buildTreeMesh(t).arrays();
-    const n = a.pos.length / 3;
-    treeTypeVertStart[t] = vertOffset;
-    treeTypeVertCount[t] = n;
-    vertOffset += n;
-    for (let i = 0; i < a.pos.length; i++) allPos.push(a.pos[i]);
-    for (let i = 0; i < a.nrm.length; i++) allNrm.push(a.nrm[i]);
-    for (let i = 0; i < a.col.length; i++) allCol.push(a.col[i]);
-  }
-  const mesh = new Float32Array(vertOffset * 9);
-  for (let i = 0; i < vertOffset; i++) {
-    mesh[i*9+0] = allPos[i*3+0]; mesh[i*9+1] = allPos[i*3+1]; mesh[i*9+2] = allPos[i*3+2];
-    mesh[i*9+3] = allNrm[i*3+0]; mesh[i*9+4] = allNrm[i*3+1]; mesh[i*9+5] = allNrm[i*3+2];
-    mesh[i*9+6] = allCol[i*3+0]; mesh[i*9+7] = allCol[i*3+1]; mesh[i*9+8] = allCol[i*3+2];
-  }
-  const vbo = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-  gl.bufferData(gl.ARRAY_BUFFER, mesh, gl.STATIC_DRAW);
-  window.__treeVBO = vbo;
-})();
-const treeVBO = window.__treeVBO;
-const treeInstVBO = gl.createBuffer();
-const treeVAO = gl.createVertexArray();
-gl.bindVertexArray(treeVAO);
-gl.bindBuffer(gl.ARRAY_BUFFER, treeVBO);
-gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 36, 0);
-gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 36, 12);
-gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 36, 24);
-gl.bindBuffer(gl.ARRAY_BUFFER, treeInstVBO);
-gl.bufferData(gl.ARRAY_BUFFER, TREE_MAX_INST * TREE_STRIDE, gl.DYNAMIC_DRAW);
-gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 3, gl.FLOAT, false, TREE_STRIDE, 0);
-gl.vertexAttribDivisor(3, 1);
-gl.enableVertexAttribArray(4); gl.vertexAttribPointer(4, 4, gl.FLOAT, false, TREE_STRIDE, 12);
-gl.vertexAttribDivisor(4, 1);
-gl.bindVertexArray(null);
-
-function hash2(ix, iz, seed) {
-  let h = Math.imul(ix, 374761393) ^ Math.imul(iz, 668265263) ^ Math.imul(seed, 1274126177);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
-}
-let treeInstData = new Float32Array(TREE_MAX_INST * TREE_INST_FLOATS);
-let lastTreeX = 1e9, lastTreeZ = 1e9, treeSig = '';
-function rebuildTreeInstances(force) {
-  if (!treesEnabled) { for (let i = 0; i < TREE_TYPES; i++) treeTypeCount[i] = 0; return; }
-  const cx = targetPosition[0], cz = targetPosition[2];
-  const sig = `${TERRAIN.k}|${TERRAIN.p}|${TERRAIN.m}|${TERRAIN.seed}|${blockSize}|${modeIndex}|${TREE_HEIGHT_MULT.toFixed(2)}|${TREE_DENSITY_MULT.toFixed(2)}`;
-  const moved = Math.hypot(cx - lastTreeX, cz - lastTreeZ);
-  if (!force && moved < 5 && sig === treeSig) return;
-  lastTreeX = cx; lastTreeZ = cz; treeSig = sig;
-  const R    = Math.ceil(TREE_RADIUS / TREE_CELL);
-  const cix  = Math.round(cx / TREE_CELL), ciz = Math.round(cz / TREE_CELL);
-  const seed = (Math.floor(TERRAIN.seed * 1000) | 0) ^ 0x5f3a;
-  const R2   = TREE_RADIUS * TREE_RADIUS;
-  const buckets = [[], [], [], [], []];
-  for (let dz = -R; dz <= R; dz++) {
-    for (let dx = -R; dx <= R; dx++) {
-      const gx = cix + dx, gz = ciz + dz;
-      if (hash2(gx, gz, seed) > 0.85) continue;
-      const r1 = hash2(gx + 9173, gz - 4421, seed);
-      const r2 = hash2(gx - 3391, gz + 7717, seed);
-      const r3 = hash2(gx + 5521, gz + 1291, seed);
-      const r4 = hash2(gx + 3119, gz - 6571, seed);
-      const r5 = hash2(gx + 7731, gz + 3917, seed);
-      const r6 = hash2(gx - 1229, gz + 8231, seed);
-      const px = (gx + r1) * TREE_CELL;
-      const pz = (gz + r2) * TREE_CELL;
-      const ddx = px - cx, ddz = pz - cz;
-      if (ddx * ddx + ddz * ddz > R2) continue;
-      const y = cachedHeightAt(px, pz);
-      if (y > 32) continue;
-      const sxSlope = Math.abs(cachedHeightAt(px + 2.5, pz) - y);
-      const szSlope = Math.abs(cachedHeightAt(px, pz + 2.5) - y);
-      if (Math.max(sxSlope, szSlope) > 2.0) continue;
-      const bw = biomeWeights(px, pz);
-      let density = 0;
-      for (let i = 0; i < BIOMES.length; i++) density += bw[i] * BIOMES[i].tree;
-      density *= TREE_DENSITY_MULT;
-      if (r3 > Math.min(1.0, density)) continue;
-      let type;
-      if (r4 < 0.04)       type = TREE_EMERGENT;
-      else if (r4 < 0.22)  type = TREE_CANOPY;
-      else if (r4 < 0.34)  type = TREE_PALM;
-      else if (r4 < 0.58)  type = TREE_UNDERSTORY;
-      else                 type = TREE_FERN;
-      const variation = 0.75 + r5 * 0.5;
-      const baseH = TREE_NOMINAL_H[type] * variation * TREE_HEIGHT_MULT;
-      const aspect = 0.85 + r6 * 0.4;
-      const yaw = hash2(gx + 4241, gz - 811, seed) * TAU;
-      const cv  = hash2(gx + 1337, gz + 2027, seed);
-      buckets[type].push([px, y - 0.15, pz, baseH, baseH * aspect, yaw, cv, 0]);
-    }
-  }
-  let total = 0;
-  for (let t = 0; t < TREE_TYPES; t++) total += buckets[t].length;
-  if (total > TREE_MAX_INST) {
-    const order = Array.from({ length: TREE_TYPES }, (_, i) => i)
-      .sort((a, b) => buckets[b].length - buckets[a].length);
-    let over = total - TREE_MAX_INST, oi = 0;
-    while (over > 0 && oi < 200) {
-      const t = order[oi % TREE_TYPES];
-      if (buckets[t].length > 0) {
-        const drop = Math.min(over, Math.ceil(buckets[t].length * 0.1));
-        buckets[t].length = Math.max(0, buckets[t].length - drop);
-        over -= drop;
-      }
-      oi++;
-    }
-  }
-  let k = 0;
-  for (let t = 0; t < TREE_TYPES; t++) {
-    treeTypeCount[t] = buckets[t].length;
-    for (const rec of buckets[t]) { treeInstData.set(rec, k); k += TREE_INST_FLOATS; }
-  }
-  if (k > 0) {
-    gl.bindBuffer(gl.ARRAY_BUFFER, treeInstVBO);
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, treeInstData, 0, k);
-  }
-}
-function drawTrees() {
-  if (!treesEnabled) return;
-  let total = 0;
-  for (let t = 0; t < TREE_TYPES; t++) total += treeTypeCount[t];
-  if (total === 0) return;
-  gl.useProgram(treeProgram);
-  pushLighting(treeProgram, treeU);
-  gl.uniformMatrix4fv(treeU.u_projectionMatrix, false, projectionMatrix);
-  gl.uniformMatrix4fv(treeU.u_modelViewMatrix,  false, modelViewMatrix);
-  gl.uniform3f(treeU.u_cameraPosition, ...position);
-  gl.uniform1f(treeU.u_fogDensity, FOG_DENSITY);
-  gl.uniform1f(treeU.u_time, performance.now() * 0.001);
-  gl.uniform1f(treeU.u_fadeStart, TREE_FADE_START);
-  gl.uniform1f(treeU.u_fadeEnd, TREE_FADE_END);
-  gl.bindVertexArray(treeVAO);
-  gl.bindBuffer(gl.ARRAY_BUFFER, treeInstVBO);
-  gl.disable(gl.CULL_FACE);
-  let instOffset = 0;
-  for (let t = 0; t < TREE_TYPES; t++) {
-    const ic = treeTypeCount[t];
-    if (ic === 0) continue;
-    const byteOff = instOffset * TREE_STRIDE;
-    gl.vertexAttribPointer(3, 3, gl.FLOAT, false, TREE_STRIDE, byteOff);
-    gl.vertexAttribPointer(4, 4, gl.FLOAT, false, TREE_STRIDE, byteOff + 12);
-    gl.drawArraysInstanced(gl.TRIANGLES, treeTypeVertStart[t], treeTypeVertCount[t], ic);
-    instOffset += ic;
-  }
-  gl.enable(gl.CULL_FACE);
-  gl.bindVertexArray(null);
-  gl.useProgram(program);
-}
-
-/* ════════════════════════════════════════════════════════════
-   6c · SKY PASS
-   ════════════════════════════════════════════════════════════ */
-const viewProjMat    = mat4.create();
-const invViewProjMat = mat4.create();
-function drawSky() {
-  mat4.multiply(viewProjMat, projectionMatrix, modelViewMatrix);
-  if (!mat4.invert(invViewProjMat, viewProjMat)) return;
-  gl.useProgram(skyProgram);
-  pushLighting(skyProgram, skyU);
-  gl.uniformMatrix4fv(skyU.u_invViewProj, false, invViewProjMat);
-  gl.bindVertexArray(null);
-  gl.disable(gl.DEPTH_TEST);
-  gl.disable(gl.CULL_FACE);
-  gl.depthMask(false);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
-  gl.depthMask(true);
-  gl.enable(gl.CULL_FACE);
-  gl.enable(gl.DEPTH_TEST);
-  gl.useProgram(program);
-}
-
-/* ════════════════════════════════════════════════════════════
-   6d · ATMOSPHERE
-   ════════════════════════════════════════════════════════════ */
-function updateAtmosphere(dt) {
-  const w = biomeWeights(targetPosition[0], targetPosition[2]);
-  let hr = 0, hg = 0, hb = 0, tr = 0, tg = 0, tb = 0, gr = 0, gg = 0, gb = 0;
-  let best = -1, bestI = 0;
-  for (let i = 0; i < BIOMES.length; i++) {
-    const B = BIOMES[i];
-    hr += w[i]*B.sky[0];    hg += w[i]*B.sky[1];    hb += w[i]*B.sky[2];
-    tr += w[i]*B.top[0];    tg += w[i]*B.top[1];    tb += w[i]*B.top[2];
-    gr += w[i]*B.ground[0]; gg += w[i]*B.ground[1]; gb += w[i]*B.ground[2];
-    if (w[i] > best) { best = w[i]; bestI = i; }
-  }
-  currentBiomeName = BIOMES[bestI].name;
-  const k = 1 - Math.exp(-dt * 1.6);
-  currentSky[0]    += (hr - currentSky[0])    * k;
-  currentSky[1]    += (hg - currentSky[1])    * k;
-  currentSky[2]    += (hb - currentSky[2])    * k;
-  currentSkyTop[0] += (tr - currentSkyTop[0]) * k;
-  currentSkyTop[1] += (tg - currentSkyTop[1]) * k;
-  currentSkyTop[2] += (tb - currentSkyTop[2]) * k;
-  currentGround[0] += (gr - currentGround[0]) * k;
-  currentGround[1] += (gg - currentGround[1]) * k;
-  currentGround[2] += (gb - currentGround[2]) * k;
-  gl.clearColor(...currentSky, 1);
-  pushLightingAll();
-}
-
-/* ════════════════════════════════════════════════════════════
-   7 · INPUT
-   ════════════════════════════════════════════════════════════ */
-addEventListener('keydown', e => { keysPressed[e.key] = true; });
-addEventListener('keyup',   e => { keysPressed[e.key] = false; });
-
-addEventListener('keydown', e => {
-  switch (e.key) {
-    case 'v': case 'V': modeIndex = (modeIndex + 1) % 3; updateModeLabel(); scheduleWorldBroadcast(); rebuildTreeInstances(true); break;
-    case '[': blockSize = Math.max(1,  blockSize - 1); updateModeLabel(); scheduleWorldBroadcast(); rebuildTreeInstances(true); break;
-    case ']': blockSize = Math.min(16, blockSize + 1); updateModeLabel(); scheduleWorldBroadcast(); rebuildTreeInstances(true); break;
-    case 'r': case 'R': edits.length = 0; scheduleWorldBroadcast(); break;
-    case 'f': case 'F': flightMode = !flightMode; if (flightMode) velocityY = 0; updateFlyLabel(); break;
-    case 'Escape': document.exitPointerLock?.(); break;
-  }
-});
-function updateFlyLabel() {
-  document.getElementById('fly').textContent = flightMode ? 'FLIGHT: ON  (F to toggle)' : '';
-}
-canvas.addEventListener('touchstart', e => {
-  if (lookTouchId === null && e.changedTouches.length) {
-    const t = e.changedTouches[0];
-    lookTouchId = t.identifier;
-    touchStartX = t.clientX;
-    touchStartY = t.clientY;
-  }
-  e.preventDefault();
-}, {passive:false});
-let touchStartX = 0, touchStartY = 0;
-canvas.addEventListener('touchmove', e => {
-  for (const t of e.changedTouches) {
-    if (t.identifier !== lookTouchId) continue;
-    mouseX += (t.clientX - touchStartX) * .005;
-    mouseY -= (t.clientY - touchStartY) * .005;
-    mouseY = Math.max(-Math.PI/2, Math.min(Math.PI/2, mouseY));
-    touchStartX = t.clientX;
-    touchStartY = t.clientY;
-  }
-  e.preventDefault();
-}, {passive:false});
-const endLookTouch = e => {
-  for (const t of e.changedTouches) if (t.identifier === lookTouchId) lookTouchId = null;
-};
-canvas.addEventListener('touchend',    endLookTouch, {passive:false});
-canvas.addEventListener('touchcancel', endLookTouch, {passive:false});
-function handleMouseMove(e) {
-  mouseX += (e.movementX || 0) * .002;
-  mouseY -= (e.movementY || 0) * .002;
-  mouseY = Math.max(-Math.PI/2, Math.min(Math.PI/2, mouseY));
-}
-canvas.addEventListener('click', () => {
-  if (matchMedia('(pointer: coarse)').matches) return;
-  canvas.requestPointerLock?.();
-});
-document.addEventListener('pointerlockchange', () => {
-  if (document.pointerLockElement === canvas) addEventListener('mousemove', handleMouseMove);
-  else removeEventListener('mousemove', handleMouseMove);
-});
-function handleKeyInput() {
-  const forward = [-modelViewMatrix[2], -modelViewMatrix[6], -modelViewMatrix[10]];
-  const right   = [ modelViewMatrix[0],  modelViewMatrix[4],  modelViewMatrix[8]];
-  if (!flightMode) { forward[1] = 0; right[1] = 0; }
-  vec3.normalize(forward, forward);
-  vec3.normalize(right,   right);
-  const sprintMult = (sprinting || (keysPressed['Shift'] && !flightMode)) ? 2.4 : 1;
-  /* FASTER WALK SPEED: was .05 walking / .5 flying */
-  const step = (flightMode ? .8 : .16) * sprintMult;
-  let mf = 0, mr = 0;
-  if (keysPressed['w']) mf += 1;
-  if (keysPressed['s']) mf -= 1;
-  if (keysPressed['d']) mr += 1;
-  if (keysPressed['a']) mr -= 1;
-  mf += -joyVec.y;
-  mr +=  joyVec.x;
-  const mag = Math.hypot(mf, mr);
-  if (mag > 1) { mf /= mag; mr /= mag; }
-  if (mf) targetPosition = vec3.scaleAndAdd([], targetPosition, forward, mf * step);
-  if (mr) targetPosition = vec3.scaleAndAdd([], targetPosition, right,   mr * step);
-  if (flightMode) {
-    if (keysPressed[' '])                       targetPosition[1] += step * .6;
-    if (keysPressed['Shift'] && !sprinting)     targetPosition[1] -= step * .6;
-  }
-}
-function applyGravity(dt) {
-  const floorY = cachedHeightAt(targetPosition[0], targetPosition[2]) + EYE_HEIGHT;
-  if (flightMode) {
-    if (targetPosition[1] < floorY) targetPosition[1] = floorY;
-    velocityY = 0; grounded = false; return;
-  }
-  if (keysPressed[' '] && grounded) { velocityY = JUMP_SPEED; grounded = false; }
-  velocityY += GRAVITY * dt;
-  let y = targetPosition[1] + velocityY * dt;
-  if (y <= floorY) { y = floorY; velocityY = 0; grounded = true; }
-  else grounded = false;
-  targetPosition[1] = y;
-}
-function applyTerrainEdit(dig) {
-  const x = position[0] + Math.sin(mouseX) * 20;
-  const z = position[2] - Math.cos(mouseX) * 20;
-  edits.push([x, z, 50, dig ? -10 : 10]);
-  if (edits.length > MAX_EDITS) edits.shift();
-  scheduleWorldBroadcast();
-  rebuildTreeInstances(true);
-}
-canvas.addEventListener('contextmenu', e => e.preventDefault());
-canvas.addEventListener('mousedown', e => {
-  if (document.pointerLockElement === canvas) applyTerrainEdit(e.button === 2);
-});
-
-const fpsElement    = document.getElementById('fps');
-const modeElement   = document.getElementById('mode');
-const biomeElement  = document.getElementById('biome');
-const netElement    = document.getElementById('net');
-const statusElement = document.getElementById('status');
-function updateModeLabel() {
-  modeElement.textContent = `Terrain: ${MODE_NAMES[modeIndex]}   block = ${blockSize}u`;
-}
-updateModeLabel();
-updateFlyLabel();
-
-/* ════════════════════════════════════════════════════════════
-   8 · NETWORKING
-   ════════════════════════════════════════════════════════════ */
-const SERVER   = "https://f0a27720-2b09-4917-b2a4-41cf0a5711b8-00-36wui2grhilpn.picard.replit.dev";
-const PASSWORD = "secret";
-const ID       = crypto.randomUUID();
-const NAME     = "P" + ID.slice(0, 4);
-const peers = {}, channels = {}, remotePlayers = {};
-const pendingICE = {}, peerIsInitiator = {}, pingTimers = {};
-const PING_INTERVAL_MS = 2000;
-const RTC_CONFIG = {iceServers:[
-  {urls:"stun:stun.l.google.com:19302"},
-  {urls:"stun:stun1.l.google.com:19302"}]};
-const shouldInitiate = peerID => ID < peerID;
-async function sendSignal(type, peerID, data) {
-  try {
-    const r = await fetch(SERVER + "/signal", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({type, from:ID, to:peerID, data})
-    });
-    return r.ok;
-  } catch { return false; }
-}
-async function fetchPeerList() {
-  try {
-    const form = new FormData();
-    form.append("password", PASSWORD);
-    form.append("client_id", ID);
-    const r = await fetch(SERVER + "/exchange_ip", {method:"POST", body:form});
-    if (!r.ok) return [];
-    const res = await r.json();
-    const ids = Array.isArray(res.peers) ? res.peers : Object.keys(res.peers || {});
-    return ids.filter(x => x !== ID);
-  } catch { return []; }
-}
-async function connectToPeer(peerID) {
-  if (peerID === ID || peers[peerID] || !shouldInitiate(peerID)) return;
-  const pc = new RTCPeerConnection(RTC_CONFIG);
-  peers[peerID] = pc;
-  pendingICE[peerID] = [];
-  peerIsInitiator[peerID] = true;
-  const dc = pc.createDataChannel("game", {ordered:true});
-  channels[peerID] = dc;
-  setupDataChannel(peerID, dc);
-  pc.onicecandidate = e => e.candidate && sendSignal("ice", peerID, e.candidate);
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === "failed" || pc.connectionState === "closed") removePeer(peerID);
-  };
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  await sendSignal("offer", peerID, pc.localDescription);
-}
-async function receiveOffer(msg) {
-  const peerID = msg.from;
-  if (peers[peerID]) {
-    if (shouldInitiate(peerID)) return;
-    removePeer(peerID, true);
-  }
-  const pc = new RTCPeerConnection(RTC_CONFIG);
-  peers[peerID] = pc;
-  pendingICE[peerID] = [];
-  peerIsInitiator[peerID] = false;
-  pc.ondatachannel = e => {
-    channels[peerID] = e.channel;
-    setupDataChannel(peerID, e.channel);
-  };
-  pc.onicecandidate = e => e.candidate && sendSignal("ice", peerID, e.candidate);
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === "failed" || pc.connectionState === "closed") removePeer(peerID);
-  };
-  await pc.setRemoteDescription(new RTCSessionDescription(msg.data));
-  await flushPendingICE(peerID);
-  const ans = await pc.createAnswer();
-  await pc.setLocalDescription(ans);
-  await sendSignal("answer", peerID, pc.localDescription);
-}
-async function receiveAnswer(msg) {
-  const pc = peers[msg.from];
-  if (!pc) return;
-  await pc.setRemoteDescription(new RTCSessionDescription(msg.data));
-  await flushPendingICE(msg.from);
-}
-async function receiveICE(msg) {
-  const pc = peers[msg.from];
-  if (!pc) return;
-  if (!pc.remoteDescription) { (pendingICE[msg.from] ??= []).push(msg.data); return; }
-  try { await pc.addIceCandidate(new RTCIceCandidate(msg.data)); } catch {}
-}
-async function flushPendingICE(peerID) {
-  const pc = peers[peerID];
-  if (!pc?.remoteDescription) return;
-  const q = pendingICE[peerID];
-  if (!q) return;
-  while (q.length) {
-    try { await pc.addIceCandidate(new RTCIceCandidate(q.shift())); } catch {}
-  }
-}
-function removePeer(peerID, keepChannel) {
-  stopPing(peerID);
-  if (!keepChannel) { try { channels[peerID]?.close(); } catch {} }
-  try { peers[peerID]?.close(); } catch {}
-  delete channels[peerID];
-  delete peers[peerID];
-  delete pendingICE[peerID];
-  delete peerIsInitiator[peerID];
-  delete remotePlayers[peerID];
-  reevaluateMobHost();
-}
-function setupDataChannel(peerID, channel) {
-  channel.onopen = () => {
-    statusElement.textContent = `peers: ${Object.keys(peers).length}`;
-    if (peerIsInitiator[peerID]) sendWorldStateTo(peerID);
-    startPing(peerID);
-    reevaluateMobHost();
-  };
-  channel.onclose = () => stopPing(peerID);
-  channel.onerror = e => console.error("channel err", peerID, e);
-  channel.onmessage = e => handleChannelMessage(peerID, e.data);
-}
-function reevaluateMobHost() {
-  let host = true;
-  for (const pid in peers) if (pid < ID) { host = false; break; }
-  if (host !== isMobHost) {
-    isMobHost = host;
-    if (host) { mobs.length = 0; spawnTimer = 0; }
-  }
-  updateNetLabel();
-}
-function updateNetLabel() {
-  const n = Object.keys(peers).length;
-  netElement.textContent =
-    `NET: ${n} peer${n === 1 ? '' : 's'}   host: ${isMobHost ? 'YES' : 'no'}   id: ${ID.slice(0,4)}`;
-}
-function startPing(peerID) {
-  stopPing(peerID);
-  pingTimers[peerID] = setInterval(() => {
-    const ch = channels[peerID];
-    if (ch?.readyState === "open")
-      try { ch.send(JSON.stringify({type:"ping", id:ID, timestamp:Date.now()})); } catch {}
-  }, PING_INTERVAL_MS);
-}
-function stopPing(peerID) {
-  if (pingTimers[peerID]) { clearInterval(pingTimers[peerID]); delete pingTimers[peerID]; }
-}
-const worldPacket = () => JSON.stringify({
-  type:"world",
-  k:TERRAIN.k, p:TERRAIN.p, m:TERRAIN.m, seed:TERRAIN.seed,
-  edits: edits.map(e => e.slice()),
-  blockSize, modeIndex,
-  treeHeight: TREE_HEIGHT_MULT,
-  treeDensity: TREE_DENSITY_MULT
-});
-function sendWorldStateTo(peerID) {
-  const ch = channels[peerID];
-  if (ch?.readyState === "open")
-    try { ch.send(worldPacket()); } catch {}
-}
-let worldBroadcastPending = false;
-const scheduleWorldBroadcast = () => { worldBroadcastPending = true; };
-function flushWorldBroadcast() {
-  if (!worldBroadcastPending) return;
-  worldBroadcastPending = false;
-  const packet = worldPacket();
-  for (const pid in channels) {
-    const ch = channels[pid];
-    if (ch?.readyState === "open")
-      try { ch.send(packet); } catch {}
-  }
-}
-function applyWorldState(p) {
-  if (typeof p.k    === 'number') TERRAIN.k    = p.k;
-  if (typeof p.p    === 'number') TERRAIN.p    = p.p;
-  if (typeof p.m    === 'number') TERRAIN.m    = p.m;
-  if (typeof p.seed === 'number') TERRAIN.seed = p.seed;
-  if (typeof p.blockSize === 'number') blockSize = p.blockSize;
-  if (typeof p.modeIndex === 'number') modeIndex = p.modeIndex;
-  if (typeof p.treeHeight === 'number')  TREE_HEIGHT_MULT  = p.treeHeight;
-  if (typeof p.treeDensity === 'number') TREE_DENSITY_MULT = p.treeDensity;
-  if (Array.isArray(p.edits)) {
-    edits.length = 0;
-    for (const e of p.edits)
-      if (Array.isArray(e) && e.length === 4) edits.push(e.slice());
-    if (edits.length > MAX_EDITS) edits.splice(0, edits.length - MAX_EDITS);
-  }
-  pushTerrainUniforms();
-  updateModeLabel();
-  syncTerrainSliders();
-  syncTreeSliders();
-  rebuildTreeInstances(true);
-}
-let lastMobBroadcast = 0;
-const MOB_BROADCAST_INTERVAL = 100;
-function hostMobTick(now) {
-  if (!isMobHost || now - lastMobBroadcast < MOB_BROADCAST_INTERVAL) return;
-  lastMobBroadcast = now;
-  if (!Object.keys(channels).length) return;
-  const list = mobs.map(m => ({
-    id:m.id, t:m.type, s:m.skin, f:m.flying ? 1 : 0,
-    x:+m.x.toFixed(2), y:+m.y.toFixed(2), z:+m.z.toFixed(2),
-    yaw:+m.yaw.toFixed(2), wp:+m.walkPhase.toFixed(2)
-  }));
-  const packet = JSON.stringify({type:"mobs", list});
-  for (const pid in channels) {
-    const ch = channels[pid];
-    if (ch?.readyState === "open")
-      try { ch.send(packet); } catch {}
-  }
-}
-function applyMobSync(list) {
-  const incoming = new Map(list.map(m => [m.id, m]));
-  const next = [];
-  for (const m of mobs) {
-    const inc = incoming.get(m.id);
-    if (!inc) continue;
-    m.targetX = inc.x; m.targetY = inc.y; m.targetZ = inc.z;
-    m.targetYaw = inc.yaw;
-    m.walkPhase = inc.wp;
-    m.flying = !!inc.f;
-    next.push(m);
-    incoming.delete(m.id);
-  }
-  for (const inc of incoming.values()) {
-    next.push({
-      id:inc.id, type:inc.t, skin:inc.s, flying:!!inc.f,
-      x:inc.x, y:inc.y, z:inc.z,
-      targetX:inc.x, targetY:inc.y, targetZ:inc.z,
-      yaw:inc.yaw, targetYaw:inc.yaw, walkPhase:inc.wp,
-      vx:0, vy:0, vz:0,
-      radius: inc.t === 'zombie' ? .45 : .62,
-      speed:0, chase:0, wanderTimer:0, wanderAngle:0, wanderSpeed:0,
-      hoverHeight:0, hoverPhase:0
-    });
-  }
-  mobs.length = 0;
-  for (const m of next) mobs.push(m);
-}
-let lastPlayerSend = 0;
-function sendPlayerState() {
-  const now = performance.now();
-  if (now - lastPlayerSend < 50) return;
-  lastPlayerSend = now;
-  const packet = JSON.stringify({
-    type:"player", id:ID, name:NAME,
-    x:+position[0].toFixed(2), y:+position[1].toFixed(2), z:+position[2].toFixed(2),
-    yaw:+mouseX.toFixed(2)
-  });
-  for (const pid in channels) {
-    const ch = channels[pid];
-    if (ch?.readyState === "open")
-      try { ch.send(packet); } catch {}
-  }
-}
-function receivePlayerState(p) {
-  if (p.id === ID) return;
-  let rp = remotePlayers[p.id];
-  if (!rp) {
-    rp = remotePlayers[p.id] = {
-      id:p.id, name:p.name,
-      x:p.x, y:p.y, z:p.z, yaw:p.yaw || 0,
-      targetX:p.x, targetY:p.y, targetZ:p.z, targetYaw:p.yaw || 0,
-      color: colorForId(p.id)
-    };
-  } else {
-    rp.name = p.name || rp.name;
-    rp.targetX = p.x; rp.targetY = p.y; rp.targetZ = p.z;
-    rp.targetYaw = p.yaw || 0;
-  }
-}
-function updateRemotePlayers() {
-  for (const id in remotePlayers) {
-    const rp = remotePlayers[id];
-    rp.x += (rp.targetX - rp.x) * .2;
-    rp.y += (rp.targetY - rp.y) * .2;
-    rp.z += (rp.targetZ - rp.z) * .2;
-    let dy = rp.targetYaw - rp.yaw;
-    while (dy >  Math.PI) dy -= Math.PI * 2;
-    while (dy < -Math.PI) dy += Math.PI * 2;
-    rp.yaw += dy * .2;
-  }
-}
-function colorForId(id) {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  const h = (hash % 360) / 360;
-  const a = .85 * Math.min(.6, .4);
-  const f = n => {
-    const k = (n + h * 12) % 12;
-    return .6 - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
-  };
-  return [f(0), f(8), f(4)];
-}
-function handleChannelMessage(peerID, raw) {
-  let p; try { p = JSON.parse(raw); } catch { return; }
-  if (!p || typeof p !== 'object') return;
-  switch (p.type) {
-    case "ping": {
-      const ch = channels[peerID];
-      if (ch?.readyState === "open")
-        try { ch.send(JSON.stringify({type:"pong", id:ID, timestamp:Date.now()})); } catch {}
-      break;
-    }
-    case "player": receivePlayerState(p); break;
-    case "world":  applyWorldState(p);    break;
-    case "mobs":   if (!isMobHost) applyMobSync(p.list); break;
-  }
-}
-async function pollSignals() {
-  try {
-    const r = await fetch(SERVER + "/signal?client_id=" + encodeURIComponent(ID));
-    if (!r.ok) return;
-    const {messages = []} = await r.json();
-    for (const m of messages) {
-      if      (m.type === "offer")  await receiveOffer(m);
-      else if (m.type === "answer") await receiveAnswer(m);
-      else if (m.type === "ice")    await receiveICE(m);
-    }
-  } catch {}
-}
-const heartbeat = () =>
-  fetch(SERVER + "/heartbeat?client_id=" + encodeURIComponent(ID)).catch(() => {});
-async function refreshPeers() {
-  for (const pid of await fetchPeerList())
-    if (!peers[pid] && shouldInitiate(pid)) await connectToPeer(pid);
-}
-(async function netStart() {
-  await refreshPeers();
-  setInterval(pollSignals, 100);
-  setInterval(refreshPeers, 3000);
-  setInterval(heartbeat, 10000);
-  updateNetLabel();
-})();
-addEventListener("beforeunload", () => {
-  for (const pid in peers) removePeer(pid);
-  try { navigator.sendBeacon(SERVER + "/disconnect?client_id=" + encodeURIComponent(ID)); } catch {}
-});
-
-/* ════════════════════════════════════════════════════════════
-   9 · TERRAIN SLIDERS
-   ════════════════════════════════════════════════════════════ */
-const sliders = {
-  u_k:      document.getElementById('u_k'),
-  u_p:      document.getElementById('u_p'),
-  u_m:      document.getElementById('u_m'),
-  u_S_seed: document.getElementById('u_S_seed'),
-};
-const labels = {
-  u_k:      document.getElementById('u_k_val'),
-  u_p:      document.getElementById('u_p_val'),
-  u_m:      document.getElementById('u_m_val'),
-  u_S_seed: document.getElementById('u_S_seed_val'),
-};
-function syncTerrainSliders() {
-  sliders.u_k.value      = TERRAIN.k;
-  sliders.u_p.value      = TERRAIN.p;
-  sliders.u_m.value      = TERRAIN.m;
-  sliders.u_S_seed.value = TERRAIN.seed;
-  labels.u_k.textContent      = TERRAIN.k.toFixed(1);
-  labels.u_p.textContent      = TERRAIN.p.toFixed(1);
-  labels.u_m.textContent      = TERRAIN.m.toFixed(0);
-  labels.u_S_seed.textContent = TERRAIN.seed.toFixed(2);
-}
-function onSliderInput() {
-  TERRAIN.k    = parseFloat(sliders.u_k.value);
-  TERRAIN.p    = parseFloat(sliders.u_p.value);
-  TERRAIN.m    = parseFloat(sliders.u_m.value);
-  TERRAIN.seed = parseFloat(sliders.u_S_seed.value);
-  syncTerrainSliders();
-  pushTerrainUniforms();
-  scheduleWorldBroadcast();
-  rebuildTreeInstances(true);
-}
-for (const el of Object.values(sliders)) el.addEventListener('input', onSliderInput);
-syncTerrainSliders();
-
-const treeHSlider = document.getElementById('tree_h');
-const treeHLabel  = document.getElementById('tree_h_val');
-const treeDSlider = document.getElementById('tree_d');
-const treeDLabel  = document.getElementById('tree_d_val');
-const rainforestBtn = document.getElementById('rainforest-btn');
-function syncTreeSliders() {
-  if (treeHSlider) {
-    treeHSlider.value = TREE_HEIGHT_MULT;
-    treeHLabel.textContent = TREE_HEIGHT_MULT.toFixed(2) + '×';
-  }
-  if (treeDSlider) {
-    treeDSlider.value = TREE_DENSITY_MULT;
-    treeDLabel.textContent = TREE_DENSITY_MULT.toFixed(2) + '×';
-  }
-}
-syncTreeSliders();
-treeHSlider?.addEventListener('input', () => {
-  TREE_HEIGHT_MULT = parseFloat(treeHSlider.value);
-  treeHLabel.textContent = TREE_HEIGHT_MULT.toFixed(2) + '×';
-  rebuildTreeInstances(true);
-  scheduleWorldBroadcast();
-});
-treeDSlider?.addEventListener('input', () => {
-  TREE_DENSITY_MULT = parseFloat(treeDSlider.value);
-  treeDLabel.textContent = TREE_DENSITY_MULT.toFixed(2) + '×';
-  rebuildTreeInstances(true);
-  scheduleWorldBroadcast();
-});
-rainforestBtn?.addEventListener('click', () => {
-  TREE_HEIGHT_MULT  = 2.2;
-  TREE_DENSITY_MULT = 2.4;
-  syncTreeSliders();
-  rebuildTreeInstances(true);
-  scheduleWorldBroadcast();
-});
-
-/* ════════════════════════════════════════════════════════════
-   10 · AMBIENT MUSIC
-   ════════════════════════════════════════════════════════════ */
-const music = {ctx:null, master:null, reverb:null, drones:[], running:false, noteTimer:null, volume:.5};
-const NOTE_POOL = [174.61, 196.00, 220.00, 246.94, 261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25];
-function makeImpulseResponse(ctx, seconds, decay) {
-  const len = Math.floor(ctx.sampleRate * seconds);
-  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-  for (let ch = 0; ch < 2; ch++) {
-    const d = buf.getChannelData(ch);
-    for (let i = 0; i < len; i++)
-      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
-  }
-  return buf;
-}
-function initAudio() {
-  if (music.ctx) return;
-  const Ctx = window.AudioContext || window.webkitAudioContext;
-  music.ctx = new Ctx();
-  music.master = music.ctx.createGain();
-  music.master.gain.value = 0;
-  music.master.connect(music.ctx.destination);
-  const convolver = music.ctx.createConvolver();
-  convolver.buffer = makeImpulseResponse(music.ctx, 5, 2.5);
-  const wet = music.ctx.createGain();
-  wet.gain.value = .55;
-  convolver.connect(wet);
-  wet.connect(music.master);
-  music.reverb = convolver;
-}
-function startDrones() {
-  const ctx = music.ctx;
-  for (const freq of [110, 164.81, 220]) {
-    const osc = ctx.createOscillator();
-    osc.type = 'sine'; osc.frequency.value = freq;
-    const gain = ctx.createGain(); gain.gain.value = .075;
-    const ampLfo = ctx.createOscillator();
-    ampLfo.frequency.value = .06 + Math.random() * .08;
-    const ampLfoGain = ctx.createGain(); ampLfoGain.gain.value = .045;
-    ampLfo.connect(ampLfoGain); ampLfoGain.connect(gain.gain);
-    const detuneLfo = ctx.createOscillator();
-    detuneLfo.frequency.value = .09 + Math.random() * .05;
-    const detuneGain = ctx.createGain(); detuneGain.gain.value = 4;
-    detuneLfo.connect(detuneGain); detuneGain.connect(osc.detune);
-    osc.connect(gain); gain.connect(music.master); gain.connect(music.reverb);
-    osc.start(); ampLfo.start(); detuneLfo.start();
-    music.drones.push(osc, ampLfo, detuneLfo);
-  }
-}
-function scheduleNextNote() {
-  if (!music.running) return;
-  const r = Math.random();
-  const delay = r < .2 ? .9 + Math.random() * 1.4
-              : r < .7 ? 2.5 + Math.random() * 3.5
-              :          6.0 + Math.random() * 6.0;
-  music.noteTimer = setTimeout(() => {
-    if (!music.running) return;
-    playBell();
-    if (Math.random() < .3) setTimeout(() => music.running && playBell(), 100 + Math.random() * 320);
-    scheduleNextNote();
-  }, delay * 1000);
-}
-function playBell() {
-  const ctx = music.ctx;
-  const baseFreq = NOTE_POOL[Math.floor(Math.random() * NOTE_POOL.length)];
-  const roll = Math.random();
-  const freq = baseFreq * (roll < .2 ? .5 : roll < .75 ? 1 : 2);
-  const detune = (Math.random() - .5) * 22;
-  const osc = ctx.createOscillator(), osc2 = ctx.createOscillator();
-  const t1 = Math.random();
-  osc.type = t1 < .55 ? 'sine' : t1 < .85 ? 'triangle' : 'sine';
-  osc.frequency.value = freq; osc.detune.value = detune;
-  osc2.type = 'sine'; osc2.frequency.value = freq * (Math.random() < .6 ? 2 : 3); osc2.detune.value = detune * 1.7;
-  const gain = ctx.createGain(), gain2 = ctx.createGain();
-  const now = ctx.currentTime;
-  const attack = .7 + Math.random() * 2.4, hold = 1.4 + Math.random() * 3, release = 3 + Math.random() * 4.5;
-  const peak = .2 + Math.random() * .16;
-  gain.gain.setValueAtTime(0, now);
-  gain.gain.linearRampToValueAtTime(peak, now + attack);
-  gain.gain.linearRampToValueAtTime(peak * .8, now + attack + hold);
-  gain.gain.linearRampToValueAtTime(0, now + attack + hold + release);
-  gain2.gain.setValueAtTime(0, now);
-  gain2.gain.linearRampToValueAtTime(peak * .28, now + attack * .7);
-  gain2.gain.linearRampToValueAtTime(0, now + attack + hold + release * .85);
-  osc.connect(gain);   gain.connect(music.master);  gain.connect(music.reverb);
-  osc2.connect(gain2); gain2.connect(music.master); gain2.connect(music.reverb);
-  const tEnd = now + attack + hold + release + .15;
-  osc.start(now); osc.stop(tEnd);
-  osc2.start(now); osc2.stop(tEnd);
-}
-function startAmbientMusic() {
-  initAudio();
-  if (music.ctx.state === 'suspended') music.ctx.resume();
-  if (music.running) return;
-  music.running = true;
-  startDrones();
-  scheduleNextNote();
-  const t = music.ctx.currentTime;
-  music.master.gain.cancelScheduledValues(t);
-  music.master.gain.setValueAtTime(music.master.gain.value, t);
-  music.master.gain.linearRampToValueAtTime(music.volume > .001 ? music.volume : 0, t + 2.5);
-}
-function stopAmbientMusic() {
-  if (!music.running) return;
-  music.running = false;
-  clearTimeout(music.noteTimer);
-  music.noteTimer = null;
-  if (music.ctx) {
-    const t = music.ctx.currentTime;
-    music.master.gain.cancelScheduledValues(t);
-    music.master.gain.setValueAtTime(music.master.gain.value, t);
-    music.master.gain.linearRampToValueAtTime(0, t + 1.5);
-    setTimeout(() => {
-      for (const n of music.drones) { try { n.stop(); } catch {} }
-      music.drones = [];
-    }, 1700);
-  }
-}
-const musicVolSlider = document.getElementById('music_vol');
-const musicVolLabel  = document.getElementById('music_vol_val');
-const musicBtn       = document.getElementById('music-btn');
-function applyMusicVolume() {
-  const v = parseFloat(musicVolSlider.value) / 100;
-  music.volume = v;
-  musicVolLabel.textContent = Math.round(v * 100) + '%';
-  if (music.master && music.ctx && music.running) {
-    const t = music.ctx.currentTime;
-    music.master.gain.cancelScheduledValues(t);
-    music.master.gain.setValueAtTime(music.master.gain.value, t);
-    music.master.gain.linearRampToValueAtTime(v, t + .15);
-  }
-}
-music.volume = parseFloat(musicVolSlider.value) / 100;
-musicVolLabel.textContent = Math.round(music.volume * 100) + '%';
-musicVolSlider.addEventListener('input', applyMusicVolume);
-function updateMusicBtn() {
-  musicBtn.textContent = music.running ? '🔊 Ambient Music: ON' : '🔊 Ambient Music: OFF';
-  musicBtn.classList.toggle('on', music.running);
-}
-updateMusicBtn();
-musicBtn.addEventListener('click', () => {
-  music.running ? stopAmbientMusic() : startAmbientMusic();
-  updateMusicBtn();
-});
-let musicAutostartArmed = true;
-function armMusicAutostart() {
-  if (!musicAutostartArmed) return;
-  musicAutostartArmed = false;
-  try { startAmbientMusic(); updateMusicBtn(); } catch {}
-}
-canvas.addEventListener('click',      armMusicAutostart, {once:true});
-canvas.addEventListener('touchstart', armMusicAutostart, {once:true});
-
-/* ════════════════════════════════════════════════════════════
-   11 · TEXTURE + BOOT
-   ════════════════════════════════════════════════════════════ */
-const anisoExt =
-  gl.getExtension('EXT_texture_filter_anisotropic') ||
-  gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic') ||
-  gl.getExtension('MOZ_EXT_texture_filter_anisotropic');
-const maxAniso = anisoExt ? gl.getParameter(anisoExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT) : 1;
-const texture = gl.createTexture();
-gl.bindTexture(gl.TEXTURE_2D, texture);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-if (anisoExt)
-  gl.texParameterf(gl.TEXTURE_2D, anisoExt.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(16, maxAniso));
-function makeFallbackTex() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = '#4a8a4a'; ctx.fillRect(0, 0, 64, 64);
-  ctx.fillStyle = '#3a6f3a';
-  for (let y = 0; y < 64; y += 8)
-    for (let x = 0; x < 64; x += 8)
-      if (((x / 8) + (y / 8)) % 2 === 0) ctx.fillRect(x, y, 8, 8);
-  return c;
-}
-let started = false;
-function startOnce() {
-  if (started) return;
-  started = true;
-  updateHeightmap(true);
-  rebuildTreeInstances(true);
-  requestAnimationFrame(animate);
-}
-const image = new Image();
-image.crossOrigin = "anonymous";
-image.src = 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQBMrrvba0q5n14_lemrp2lSPv4XqAjVkIJylaUj-DOLJl5PyCwAVU-sZ14Y_oZVmEUCLs&usqp=CAU';
-image.onload = () => {
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-  gl.generateMipmap(gl.TEXTURE_2D);
-  gl.disable(gl.BLEND);
-  startOnce();
-};
-image.onerror = () => {
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, makeFallbackTex());
-  gl.disable(gl.BLEND);
-  startOnce();
-};
-setTimeout(startOnce, 4000);
-gl.useProgram(program);
-gl.activeTexture(gl.TEXTURE0);
-gl.bindTexture(gl.TEXTURE_2D, texture);
-gl.uniform1i(main.u_texture, 0);
-
-/* ════════════════════════════════════════════════════════════
-   12 · RENDER LOOP
-   ════════════════════════════════════════════════════════════ */
-const CLIP_N = 128;
-const MC_GRID = 128;
-const clipBaseCell = () => (modeIndex === 1 ? Math.max(1, blockSize) : 1);
-function clipLevelCount(base) {
-  let levels = 1;
-  while (levels < 9 && (CLIP_N * .5) * base * Math.pow(2, levels - 1) < 4096) levels++;
-  return Math.max(2, levels);
-}
-function blockLevelCount() {
-  const radius0 = (MC_GRID * .5) * blockSize;
-  let levels = 1;
-  while (levels < 9 && radius0 * Math.pow(2, levels - 1) < 4096) levels++;
-  return Math.max(2, levels);
-}
-const cameraPos = [0, 0];
-let frameCount = 0, startTime = performance.now(), lastTime = performance.now();
-function animate() {
-  const now = performance.now();
-  const dt = Math.min((now - lastTime) / 1000, .05);
-  lastTime = now;
-  handleKeyInput();
-  applyGravity(dt);
-  updateHeightmap();
-  if (isMobHost) { updateMobs(dt); updateSpawning(dt); }
-  else {
-    for (const m of mobs) {
-      m.x += (m.targetX - m.x) * .2;
-      m.y += (m.targetY - m.y) * .2;
-      m.z += (m.targetZ - m.z) * .2;
-      let dy = m.targetYaw - m.yaw;
-      while (dy >  Math.PI) dy -= Math.PI * 2;
-      while (dy < -Math.PI) dy += Math.PI * 2;
-      m.yaw += dy * .2;
-    }
-  }
-  collidePlayerWithMobs();
-  updateAtmosphere(dt);
-  cameraPos[0] = position[0];
-  cameraPos[1] = position[2];
-  position = vec3.lerp([], position, targetPosition, .1);
-  mat4.lookAt(modelViewMatrix,
-    [position[0], position[1], position[2]],
-    [position[0] + Math.sin(mouseX),
-     position[1] + Math.sin(mouseY),
-     position[2] - Math.cos(mouseX)],
-    [0, 1, 0]);
-  rebuildTreeInstances(false);
-  gl.clearColor(...currentSky, 1);
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  drawSky();
-  gl.useProgram(program);
-  gl.bindVertexArray(null);
-  uploadEdits(main);
-  uploadTerrainState(main, MC_GRID);
-  gl.uniformMatrix4fv(main.u_projectionMatrix, false, projectionMatrix);
-  gl.uniformMatrix4fv(main.u_modelViewMatrix,  false, modelViewMatrix);
-  gl.uniform2f(main.u_cameraPos, cameraPos[0], cameraPos[1]);
-  gl.uniform3f(main.u_cameraPosition, ...position);
-  gl.uniform1f(main.u_fogDensity, FOG_DENSITY);
-  gl.uniform1f(main.u_shadows, shadowsEnabled ? 1 : 0);
-  if (modeIndex === 2) {
-    const levels = blockLevelCount();
-    const vertsPerLevel = MC_GRID * MC_GRID * 30;
-    gl.uniform1f(main.u_gridSize, MC_GRID);
-    for (let L = 0; L < levels; L++) {
-      gl.uniform1i(main.u_level, L);
-      gl.drawArrays(gl.TRIANGLES, 0, vertsPerLevel);
-    }
-  } else {
-    const base = clipBaseCell();
-    const levels = clipLevelCount(base);
-    gl.uniform1f(main.u_baseCell, base);
-    for (let L = 0; L < levels; L++) {
-      gl.uniform1i(main.u_level, L);
-      gl.drawArrays(gl.TRIANGLES, 0, CLIP_N * CLIP_N * 6);
-    }
-  }
-  drawTrees();
-  drawMobs();
-  updateRemotePlayers();
-  sendPlayerState();
-  flushWorldBroadcast();
-  hostMobTick(now);
-  frameCount++;
-  if (now - startTime >= 1000) {
-    fpsElement.textContent = `FPS: ${((frameCount / (now - startTime)) * 1000).toFixed(2)}`;
-    frameCount = 0;
-    while (now - startTime >= 1000) startTime += 1000;
-  }
-  const flyers = mobs.reduce((n, m) => n + (m.flying ? 1 : 0), 0);
-  let treeTotal = 0;
-  for (let t = 0; t < TREE_TYPES; t++) treeTotal += treeTypeCount[t];
-  biomeElement.textContent =
-    `Biome: ${currentBiomeName}   mobs: ${mobs.length} (flying: ${flyers})   trees: ${treeTotal}`;
-  requestAnimationFrame(animate);
-}
-
-/* ════════════════════════════════════════════════════════════
-   13 · MOBILE / FULLSCREEN / RESIZE
-   ════════════════════════════════════════════════════════════ */
-(function mobileUI() {
-  const ua = navigator.userAgent || '';
-  const isTouchDevice = ('ontouchstart' in window) ||
-    navigator.maxTouchPoints > 0 ||
-    matchMedia('(pointer: coarse)').matches;
-  const isIPhone = /iPhone|iPod/.test(ua);
-  const isStandalone =
-    navigator.standalone === true ||
-    matchMedia('(display-mode: standalone)').matches ||
-    matchMedia('(display-mode: fullscreen)').matches;
-  function resizeViewport() {
-    const vv = window.visualViewport;
-    const w = Math.max(1, Math.round(vv ? vv.width  : innerWidth));
-    const h = Math.max(1, Math.round(vv ? vv.height : innerHeight));
-    if (canvas.width === w && canvas.height === h) return;
-    canvas.width = w; canvas.height = h;
-    gl.viewport(0, 0, w, h);
-    mat4.perspective(projectionMatrix, Math.PI / 4, w / h, .5, 250000);
-    gl.useProgram(program);
-    gl.uniformMatrix4fv(main.u_projectionMatrix, false, projectionMatrix);
-  }
-  addEventListener('resize', resizeViewport);
-  addEventListener('orientationchange', () => setTimeout(resizeViewport, 350));
-  window.visualViewport?.addEventListener('resize', resizeViewport);
-  window.visualViewport?.addEventListener('scroll', resizeViewport);
-  resizeViewport();
-  let pseudoFullscreen = false;
-  const fsElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
-  const fsSupported = () => !(isIPhone && !isStandalone) &&
-    !!document.documentElement.requestFullscreen;
-  const fsActive = () => !!fsElement() || pseudoFullscreen || isStandalone;
-  function setPseudoFS(on) {
-    if (pseudoFullscreen === on) return;
-    pseudoFullscreen = on;
-    document.documentElement.classList.toggle('pseudo-fullscreen', on);
-    setTimeout(resizeViewport, 60);
-    dispatchEvent(new Event('resize'));
-    updateFsBtn();
-  }
-  function requestFs() {
-    if (!fsSupported()) { setPseudoFS(true); return Promise.resolve(false); }
-    const el = document.documentElement;
-    let p;
-    try { p = el.requestFullscreen({navigationUI:'hide'}); }
-    catch { try { p = el.requestFullscreen(); }
-            catch { setPseudoFS(true); return Promise.resolve(false); } }
-    if (p?.then)
-      return p.then(() => {
-        screen.orientation?.lock?.('landscape').catch(() => {});
-        return true;
-      }).catch(() => { setPseudoFS(true); return false; });
-    return Promise.resolve(true);
-  }
-  function exitFs() {
-    if (pseudoFullscreen) { setPseudoFS(false); return; }
-    try { document.exitFullscreen?.()?.catch?.(() => {}); } catch {}
-  }
-  const toggleFs = () => (fsElement() || pseudoFullscreen) ? exitFs() : requestFs().catch(() => {});
-  const HINT_KEY = 'fsHintDismissed_v1';
-  let hintEl = null;
-  function showIOSHint(force) {
-    if (!isTouchDevice || !isIPhone || isStandalone) return;
-    if (!force && sessionStorage.getItem(HINT_KEY) === '1') return;
-    if (hintEl) { hintEl.style.display = 'block'; return; }
-    hintEl = document.createElement('div');
-    hintEl.id = 'fs-hint';
-    hintEl.innerHTML =
-      '<div class="fs-hint-inner">' +
-        '<div class="fs-hint-text">📱 <b>For true fullscreen on iPhone:</b><br>' +
-        'Tap <span class="fs-hint-share">Share ⬆️</span> → <b>Add to Home Screen</b> → open the icon.</div>' +
-        '<button class="fs-hint-close" aria-label="Dismiss">✕</button>' +
-      '</div>';
-    document.body.appendChild(hintEl);
-    hintEl.querySelector('.fs-hint-close').addEventListener('click', () => {
-      hintEl.style.display = 'none';
-      sessionStorage.setItem(HINT_KEY, '1');
-    });
-    setTimeout(() => { if (hintEl) hintEl.style.display = 'none'; }, 12000);
-  }
-  if (isTouchDevice) {
-    let armed = true;
-    const armFs = () => {
-      if (!armed) return;
-      armed = false;
-      for (const ev of ['pointerdown', 'touchstart', 'click'])
-        document.removeEventListener(ev, armFs);
-      if (isStandalone || fsElement() || pseudoFullscreen) return;
-      requestFs().catch(() => {});
-      if (isIPhone && !isStandalone) setTimeout(() => showIOSHint(false), 900);
-    };
-    for (const ev of ['pointerdown', 'touchstart', 'click'])
-      document.addEventListener(ev, armFs, {once:true, passive:true});
-  }
-  const fsBtn = document.getElementById('fs-btn');
-  const fsFab = document.createElement('button');
-  fsFab.id = 'fs-fab';
-  fsFab.textContent = '⛶';
-  fsFab.addEventListener('click', toggleFs);
-  document.body.appendChild(fsFab);
-  function updateFsBtn() {
-    const on = fsActive();
-    fsBtn.textContent = on ? '⛶ Fullscreen: ON' : '⛶ Fullscreen: OFF';
-    fsBtn.classList.toggle('on', on);
-    fsFab.style.display = (isTouchDevice && !on) ? 'flex' : 'none';
-  }
-  fsBtn.addEventListener('click', toggleFs);
-  for (const ev of ['fullscreenchange', 'webkitfullscreenchange'])
-    document.addEventListener(ev, () => { updateFsBtn(); setTimeout(resizeViewport, 120); });
-  updateFsBtn();
-  const joyBase = document.getElementById('joystick');
-  const joyKnob = document.getElementById('stick');
-  const JOY_MAX = 50, JOY_DEADZONE = .14;
-  let joyPointerId = null, joyCenterX = 0, joyCenterY = 0;
-  function joyApply(cx, cy) {
-    const dx = cx - joyCenterX, dy = cy - joyCenterY;
-    const len = Math.hypot(dx, dy);
-    const clamped = Math.min(len, JOY_MAX);
-    const nx = len > 1e-4 ? dx / len : 0;
-    const ny = len > 1e-4 ? dy / len : 0;
-    joyKnob.style.transform =
-      `translate(${(nx * clamped).toFixed(1)}px, ${(ny * clamped).toFixed(1)}px)`;
-    let vx = nx * clamped / JOY_MAX;
-    let vy = ny * clamped / JOY_MAX;
-    if (Math.hypot(vx, vy) < JOY_DEADZONE) { vx = 0; vy = 0; }
-    joyVec.x = vx;
-    joyVec.y = vy;
-  }
-  function joyReset() {
-    joyPointerId = null;
-    joyVec.x = joyVec.y = 0;
-    joyKnob.style.transform = 'translate(0px, 0px)';
-  }
-  joyBase.addEventListener('pointerdown', e => {
-    if (joyPointerId !== null) return;
-    const r = joyBase.getBoundingClientRect();
-    joyCenterX = r.left + r.width * .5;
-    joyCenterY = r.top  + r.height * .5;
-    joyPointerId = e.pointerId;
-    try { joyBase.setPointerCapture(e.pointerId); } catch {}
-    joyApply(e.clientX, e.clientY);
-    e.preventDefault();
-  });
-  joyBase.addEventListener('pointermove', e => {
-    if (e.pointerId !== joyPointerId) return;
-    joyApply(e.clientX, e.clientY);
-    e.preventDefault();
-  });
-  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture'])
-    joyBase.addEventListener(ev, e => { if (e.pointerId === joyPointerId) joyReset(); });
-  function bindHold(id, key) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const down = e => { e.preventDefault(); keysPressed[key] = true;  el.classList.add('active'); };
-    const up   = () => { keysPressed[key] = false; el.classList.remove('active'); };
-    for (const ev of ['pointerdown']) el.addEventListener(ev, down);
-    for (const ev of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture'])
-      el.addEventListener(ev, up);
-  }
-  function bindTap(id, fn) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('pointerdown', e => {
-      e.preventDefault();
-      el.classList.add('active');
-      setTimeout(() => el.classList.remove('active'), 120);
-      fn();
-    });
-  }
-  bindHold('btn-jump', ' ');
-  bindHold('btn-down', 'Shift');
-  bindTap('btn-mode',  () => { modeIndex = (modeIndex + 1) % 3; updateModeLabel(); scheduleWorldBroadcast(); rebuildTreeInstances(true); });
-  bindTap('btn-reset', () => { edits.length = 0; scheduleWorldBroadcast(); rebuildTreeInstances(true); });
-  bindTap('btn-raise', () => applyTerrainEdit(false));
-  bindTap('btn-dig',   () => applyTerrainEdit(true));
-  const flyBtn = document.getElementById('btn-fly');
-  const updateFlyBtn = () => flyBtn.classList.toggle('on', flightMode);
-  flyBtn.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    flightMode = !flightMode;
-    if (flightMode) velocityY = 0;
-    updateFlyLabel();
-    updateFlyBtn();
-  });
-  updateFlyBtn();
-  const sprintBtn = document.getElementById('btn-sprint');
-  const updateSprintBtn = () => sprintBtn.classList.toggle('on', sprinting);
-  sprintBtn.addEventListener('pointerdown', e => {
-    e.preventDefault();
-    sprinting = !sprinting;
-    updateSprintBtn();
-  });
-  updateSprintBtn();
-  const controlsEl = document.getElementById('touch-controls');
-  const touchBtn   = document.getElementById('touch-btn');
-  function setTouchControls(on) {
-    controlsEl.classList.toggle('enabled', on);
-    touchBtn.textContent = '🎮 Touch Controls: ' + (on ? 'ON' : 'OFF');
-    touchBtn.classList.toggle('on', on);
-    if (!on) {
-      joyVec.x = joyVec.y = 0;
-      joyKnob.style.transform = 'translate(0px, 0px)';
-      keysPressed[' '] = false;
-      keysPressed['Shift'] = false;
-      sprinting = false;
-      updateSprintBtn();
-    }
-  }
-  touchBtn.addEventListener('click', () => setTouchControls(!controlsEl.classList.contains('enabled')));
-  setTouchControls(isTouchDevice);
-  const treesBtn = document.getElementById('trees-btn');
-  function updateTreesBtn() {
-    treesBtn.textContent = '🌲 Trees: ' + (treesEnabled ? 'ON' : 'OFF');
-    treesBtn.classList.toggle('on', treesEnabled);
-  }
-  treesBtn.addEventListener('click', () => {
-    treesEnabled = !treesEnabled;
-    updateTreesBtn();
-    rebuildTreeInstances(true);
-  });
-  updateTreesBtn();
-  const shadowsBtn = document.getElementById('shadows-btn');
-  function updateShadowsBtn() {
-    shadowsBtn.textContent = '🌑 Soft Shadows: ' + (shadowsEnabled ? 'ON' : 'OFF');
-    shadowsBtn.classList.toggle('on', shadowsEnabled);
-  }
-  shadowsBtn.addEventListener('click', () => {
-    shadowsEnabled = !shadowsEnabled;
-    updateShadowsBtn();
-  });
-  if (isTouchDevice) shadowsEnabled = false;
-  updateShadowsBtn();
-  const panel = document.getElementById('params');
-  panel.querySelector('h3').addEventListener('click', () => panel.classList.toggle('collapsed'));
-})();
-</script>
-
 <!-- ══════════════════════════════════════════════════════════════
      EXTENSION — CAR · SURVIVAL · GUNS · ENEMIES · DAY/NIGHT ·
-     STRUCTURES · RESPAWN · FAST WALK
+     STRUCTURES · RESPAWN · FAST WALK · HORROR UPDATE (FIXED)
      ══════════════════════════════════════════════════════════════ -->
 <script>
 (function () {
@@ -2555,7 +9,111 @@ function animate() {
 const $ = id => document.getElementById(id);
 
 /* ══════════════════════════════════════════════════════════
-   0 · SOUND EFFECTS
+   0 · DOM OVERLAYS (timer, health bars, red screen, gun)
+   ══════════════════════════════════════════════════════════ */
+
+/* --- BIG COUNTDOWN TIMER --- */
+const timerOverlay = document.createElement('div');
+timerOverlay.id = 'survival-timer';
+timerOverlay.style.cssText = `
+  position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+  z-index:50;color:#ff2222;font:900 180px/1 monospace;
+  text-shadow:0 0 30px #f00,0 0 80px #a00,0 0 140px #500;
+  pointer-events:none;display:none;letter-spacing:6px;
+  -webkit-text-stroke:3px #300;
+`;
+document.body.appendChild(timerOverlay);
+
+const timerSub = document.createElement('div');
+timerSub.style.cssText = `
+  position:fixed;top:calc(50% + 140px);left:50%;transform:translateX(-50%);
+  z-index:50;color:#fff;font:bold 28px monospace;
+  text-shadow:0 0 20px #f00,0 0 40px #800;
+  pointer-events:none;display:none;letter-spacing:8px;
+`;
+document.body.appendChild(timerSub);
+
+/* --- RED SCREEN (ambient + flash) --- */
+const redAmbient = document.createElement('div');
+redAmbient.style.cssText = `
+  position:fixed;inset:0;z-index:41;pointer-events:none;
+  background:radial-gradient(circle at 50% 55%, rgba(180,0,0,0.05), rgba(90,0,0,0.55) 85%);
+  opacity:0;transition:opacity .8s;mix-blend-mode:multiply;
+`;
+document.body.appendChild(redAmbient);
+
+const redFlash = document.createElement('div');
+redFlash.style.cssText = `
+  position:fixed;inset:0;z-index:42;pointer-events:none;
+  background:radial-gradient(circle, rgba(255,20,20,0.75), rgba(120,0,0,0.95));
+  opacity:0;transition:opacity .35s;
+`;
+document.body.appendChild(redFlash);
+
+/* --- HEALTH BAR LAYER --- */
+const healthLayer = document.createElement('div');
+healthLayer.style.cssText = `
+  position:fixed;inset:0;z-index:11;pointer-events:none;overflow:hidden;
+`;
+document.body.appendChild(healthLayer);
+
+/* --- GUN MODEL (bottom-right, animated) --- */
+const gunEl = document.createElement('div');
+gunEl.id = 'gun-model';
+gunEl.style.cssText = `
+  position:fixed;right:-10px;bottom:-20px;z-index:14;
+  width:280px;height:280px;pointer-events:none;
+  transform-origin:85% 92%;
+  transition:transform .09s ease-out;
+  display:none;
+  filter:drop-shadow(0 6px 16px rgba(0,0,0,.8));
+`;
+gunEl.innerHTML = `
+<svg viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg">
+  <!-- barrel -->
+  <rect x="60" y="60" width="180" height="26" rx="4" fill="#2b2b30"/>
+  <rect x="60" y="60" width="180" height="8" rx="2" fill="#3d3d44"/>
+  <rect x="228" y="55" width="18" height="36" rx="4" fill="#1a1a1f"/>
+  <!-- muzzle -->
+  <rect x="244" y="58" width="12" height="30" rx="3" fill="#0e0e12"/>
+  <!-- upper receiver -->
+  <rect x="20" y="86" width="120" height="46" rx="5" fill="#1e1e24"/>
+  <rect x="20" y="86" width="120" height="10" rx="3" fill="#333340"/>
+  <!-- charging handle -->
+  <rect x="10" y="96" width="22" height="10" rx="2" fill="#3a3a44"/>
+  <!-- magazine -->
+  <path d="M70 132 L100 132 L112 210 L74 210 Z" fill="#141419"/>
+  <path d="M70 132 L100 132 L104 148 L74 148 Z" fill="#222229"/>
+  <!-- trigger guard -->
+  <path d="M118 132 L162 132 L162 152 L118 152 Z" fill="#101015"/>
+  <rect x="118" y="130" width="48" height="6" fill="#2b2b30"/>
+  <!-- trigger -->
+  <rect x="140" y="136" width="6" height="22" rx="2" fill="#3d3d44"/>
+  <!-- grip -->
+  <path d="M118 152 L152 152 L158 236 L120 236 Z" fill="#191921"/>
+  <path d="M118 152 L152 152 L154 176 L120 176 Z" fill="#2a2a34"/>
+  <!-- hand guard -->
+  <rect x="152" y="132" width="90" height="18" rx="4" fill="#232329"/>
+  <rect x="152" y="132" width="90" height="6" rx="2" fill="#333340"/>
+  <!-- stock -->
+  <rect x="-8" y="90" width="34" height="42" rx="4" fill="#1a1a20"/>
+  <rect x="-16" y="96" width="16" height="30" rx="3" fill="#0f0f14"/>
+</svg>
+`;
+document.body.appendChild(gunEl);
+
+/* --- MUZZLE FLASH on the gun --- */
+const gunFlash = document.createElement('div');
+gunFlash.style.cssText = `
+  position:fixed;right:180px;bottom:180px;z-index:15;pointer-events:none;
+  width:120px;height:120px;border-radius:50%;
+  background:radial-gradient(circle, rgba(255,230,140,.95), rgba(255,120,0,.6) 40%, transparent 70%);
+  opacity:0;transition:opacity .06s;display:none;
+`;
+document.body.appendChild(gunFlash);
+
+/* ══════════════════════════════════════════════════════════
+   1 · SOUND EFFECTS
    ══════════════════════════════════════════════════════════ */
 const sfx = { master:null, ready:false, screamBus:null };
 
@@ -2660,6 +218,33 @@ function playSfx(kind) {
       o.connect(f); f.connect(g);
       g.connect(sfx.master); g.connect(sfx.screamBus);
       o.start(t); o.stop(t + 2.0);
+      return;
+    }
+    if (kind === 'boss_roar') {
+      for (let v = 0; v < 4; v++) {
+        const o = ctx.createOscillator();
+        o.type = v % 2 ? 'square' : 'sawtooth';
+        const base = 28 + v * 8 + Math.random() * 6;
+        o.frequency.setValueAtTime(base, t);
+        o.frequency.linearRampToValueAtTime(base * 1.6, t + 0.5);
+        o.frequency.exponentialRampToValueAtTime(base * 0.6, t + 2.4);
+        const f = ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value = 400;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.5, t + 0.25);
+        g.gain.linearRampToValueAtTime(0.42, t + 1.6);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 2.8);
+        o.connect(f); f.connect(g);
+        g.connect(sfx.master); g.connect(sfx.screamBus);
+        o.start(t); o.stop(t + 3.0);
+      }
+      const burst = noiseBurst(ctx, 2.6, 1.0, 'lowpass', 300, 1.0);
+      const bg = ctx.createGain();
+      bg.gain.setValueAtTime(0, t);
+      bg.gain.linearRampToValueAtTime(0.5, t + 0.3);
+      bg.gain.exponentialRampToValueAtTime(0.001, t + 2.6);
+      burst.filter.connect(bg); bg.connect(sfx.master); bg.connect(sfx.screamBus);
+      burst.src.start(t); burst.src.stop(t + 2.8);
       return;
     }
     if (kind === 'spider') {
@@ -2803,7 +388,7 @@ function stopEngine() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   1 · DAY / NIGHT CYCLE
+   2 · DAY / NIGHT
    ══════════════════════════════════════════════════════════ */
 const dayNight = {
   time: 0.28, cycleSec: 200, enabled: true,
@@ -2851,7 +436,7 @@ function applyNightTint() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   2 · CAR
+   3 · CAR
    ══════════════════════════════════════════════════════════ */
 const car = {
   x: 10, y: 0, z: 10, yaw: 0.6, speed: 0,
@@ -2955,33 +540,92 @@ function updateCar(dt) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   3 · SURVIVAL MODE + ENEMIES
+   4 · SURVIVAL STATE + TIMER + LOCK
    ══════════════════════════════════════════════════════════ */
 const survival = {
   on: false, hp: 100, maxHp: 100,
   ammo: 6, maxAmmo: 6, recharge: 1.4,
-  wood: 0, stone: 0, food: 0, hitCd: 0
+  wood: 0, stone: 0, food: 0, hitCd: 0,
+  locked: false           // <-- once true, cannot turn off
 };
 
+const timer = {
+  running: false,
+  count: 0,               // counts DOWN 5..4..3..2..1..SURVIVE
+  phase: 'idle'           // 'idle' | 'countdown' | 'active'
+};
+
+function startSurvivalCountdown() {
+  if (timer.running || survival.locked) return;
+  survival.on = true;             // start spawning immediately
+  timer.running = true;
+  timer.phase = 'countdown';
+  timer.count = 5;
+  crosshair.style.display = 'block';
+  gunEl.style.display = 'block';
+  gunFlash.style.display = 'block';
+  showTimer('5', '#ff5555');
+  timerSub.style.display = 'block';
+  timerSub.textContent = 'GET READY';
+  updateSurvivalBtn();
+  updateSurvivalHud();
+  ensureAudio();
+  playSfx('scream');
+
+  const iv = setInterval(() => {
+    timer.count -= 1;
+    if (timer.count > 0) {
+      showTimer(String(timer.count), '#ff5555');
+      playSfx('hit');
+    } else {
+      clearInterval(iv);
+      timer.phase = 'active';
+      survival.locked = true;      // <-- LOCK: cannot turn off again
+      showTimer('SURVIVE!', '#ff0000');
+      timerSub.textContent = 'SURVIVAL MODE LOCKED';
+      playSfx('boss_roar');
+      redFlash.style.opacity = '1';
+      setTimeout(() => { redFlash.style.opacity = '0'; }, 500);
+      survivalBtn.disabled = true;
+      survivalBtn.style.opacity = '0.45';
+      survivalBtn.style.cursor = 'not-allowed';
+      updateSurvivalBtn();
+      setTimeout(() => {
+        timerOverlay.style.display = 'none';
+        timerSub.style.display = 'none';
+      }, 1400);
+    }
+  }, 1000);
+}
+
+function showTimer(text, color) {
+  timerOverlay.textContent = text;
+  timerOverlay.style.color = color || '#ff2222';
+  timerOverlay.style.display = 'block';
+}
+
+/* ══════════════════════════════════════════════════════════
+   5 · ENEMIES + BOSS
+   ══════════════════════════════════════════════════════════ */
 const enemies = [];
 const MAX_ENEMIES_DAY   = 18;
-const MAX_ENEMIES_NIGHT = 40;
+const MAX_ENEMIES_NIGHT = 100;
+const MAX_ENEMIES_BOSS  = 10;   // extra slot for boss(es)
 
 const ENEMY_DEF = {
   zombie:   { hp:34, speed:2.1,  radius:0.50, color:[0.34,0.62,0.36], dmg:8,  snd:'zombie',   nightBias:3 },
   skeleton: { hp:22, speed:3.0,  radius:0.45, color:[0.90,0.90,0.84], dmg:6,  snd:'skeleton', nightBias:2 },
   brute:    { hp:95, speed:1.45, radius:0.85, color:[0.56,0.22,0.22], dmg:18, snd:'brute',    nightBias:1 },
   spider:   { hp:14, speed:4.2,  radius:0.42, color:[0.14,0.10,0.16], dmg:4,  snd:'spider',   nightBias:3 },
-  /* CREEPER: high bias so it spawns a lot, day and night */
-  creeper:  { hp:18, speed:2.4,  radius:0.55, color:[0.30,0.72,0.28], dmg:0,  snd:'creeper_fuse', nightBias:6, explodes:true }
+  creeper:  { hp:18, speed:2.4,  radius:0.55, color:[0.30,0.72,0.28], dmg:0,  snd:'creeper_fuse', nightBias:6, explodes:true },
+  boss:     { hp:500, speed:1.2, radius:2.0,  color:[0.6,0.05,0.05], dmg:40, snd:'boss_roar', nightBias:0 }
 };
 
 function pickEnemyType() {
   const night = dayNight.isNight;
   const pool = [];
   for (const k in ENEMY_DEF) {
-    const def = ENEMY_DEF[k];
-    /* CREEPERS: heavy weight even during the day */
+    if (k === 'boss') continue;
     let w;
     if (k === 'creeper')      w = night ? 8 : 5;
     else if (k === 'zombie')  w = night ? 6 : 3;
@@ -2994,7 +638,9 @@ function pickEnemyType() {
 }
 
 let enemySpawnTimer = 0;
-function spawnEnemy(forceType) {
+let bossSpawnTimer  = 25;   // first boss after 25s of night
+
+function spawnEnemy(forceType, sizeMult) {
   const type = forceType || pickEnemyType();
   const a = Math.random() * TAU;
   const r = 22 + Math.random() * 28;
@@ -3003,14 +649,52 @@ function spawnEnemy(forceType) {
   const y = cachedHeightAt(x, z);
   const e = {
     type, x, y, z, yaw: 0, walkPhase: Math.random() * 6.28,
-    vx: 0, vz: 0, hp: ENEMY_DEF[type].hp,
+    vx: 0, vz: 0,
+    hp: ENEMY_DEF[type].hp, maxHp: ENEMY_DEF[type].hp,
     netX: x, netY: y, netZ: z, netYaw: 0,
     soundTimer: 1.5 + Math.random() * 4,
-    fuse: -1
+    fuse: -1,
+    healthBarT: 4.0            // show health bar on spawn
   };
+  if (sizeMult) {
+    e.maxHp = Math.floor(e.maxHp * sizeMult);
+    e.hp    = e.maxHp;
+  }
   enemies.push(e);
   playSfx(ENEMY_DEF[type].snd);
   return e;
+}
+
+function spawnBoss() {
+  const a = Math.random() * TAU;
+  const r = 30 + Math.random() * 12;
+  const x = targetPosition[0] + Math.cos(a) * r;
+  const z = targetPosition[2] + Math.sin(a) * r;
+  const y = cachedHeightAt(x, z);
+  const e = {
+    type: 'boss', x, y, z, yaw: 0, walkPhase: 0,
+    vx: 0, vz: 0,
+    hp: ENEMY_DEF.boss.hp, maxHp: ENEMY_DEF.boss.hp,
+    netX: x, netY: y, netZ: z, netYaw: 0,
+    soundTimer: 1.0, fuse: -1,
+    healthBarT: 12.0
+  };
+  enemies.push(e);
+  playSfx('boss_roar');
+  /* HORROR RED SCREEN — flash + sustained ambient tint */
+  redFlash.style.opacity = '1';
+  setTimeout(() => { redFlash.style.opacity = '0'; }, 900);
+  redAmbient.style.opacity = '1';          // stays on until boss dies
+  /* Screen shake */
+  shakeScreen(0.9, 0.5);
+  return e;
+}
+
+/* simple screen shake helper — nudges the camera target */
+let shake = { amp: 0, t: 0 };
+function shakeScreen(amp, dur) {
+  shake.amp = amp;
+  shake.t   = dur;
 }
 
 function creeperExplode(e) {
@@ -3030,33 +714,53 @@ function creeperExplode(e) {
   rebuildTreeInstances(true);
   const i = enemies.indexOf(e);
   if (i >= 0) enemies.splice(i, 1);
+  removeHealthBar(e);
   updateSurvivalHud();
 }
 
 function updateSurvival(dt) {
   if (survival.hitCd > 0) survival.hitCd -= dt;
-  if (!survival.on) { if (enemies.length) enemies.length = 0; return; }
+  if (!survival.on) { if (enemies.length) enemies.forEach(removeHealthBar); enemies.length = 0; return; }
 
   if (survival.ammo < survival.maxAmmo) {
     survival.recharge -= dt;
     if (survival.recharge <= 0) { survival.ammo++; survival.recharge = 1.4; }
   } else survival.recharge = 1.4;
 
+  /* Boss spawn timer — only at night */
+  if (dayNight.isNight) {
+    bossSpawnTimer -= dt;
+    const bossCount = enemies.filter(e => e.type === 'boss').length;
+    if (bossSpawnTimer <= 0 && bossCount < 2) {
+      spawnBoss();
+      bossSpawnTimer = 90 + Math.random() * 60;
+    }
+  } else {
+    bossSpawnTimer = Math.max(bossSpawnTimer, 20);
+  }
+
+  /* Ambient red screen while any boss alive */
+  const anyBoss = enemies.some(e => e.type === 'boss');
+  if (anyBoss) redAmbient.style.opacity = '1';
+  else if (redAmbient.style.opacity !== '0') redAmbient.style.opacity = '0';
+
   if (isMobHost) {
     const cap = dayNight.isNight ? MAX_ENEMIES_NIGHT : MAX_ENEMIES_DAY;
     enemySpawnTimer -= dt;
     if (enemySpawnTimer <= 0 && enemies.length < cap) {
-      enemySpawnTimer = dayNight.isNight ? 0.5 + Math.random()*1.0 : 1.4 + Math.random()*1.8;
+      enemySpawnTimer = dayNight.isNight ? 0.30 + Math.random()*0.6 : 1.4 + Math.random()*1.8;
       spawnEnemy();
-      if (Math.random() < 0.55 && enemies.length < cap) spawnEnemy();
+      if (Math.random() < 0.8 && enemies.length < cap) spawnEnemy();
+      if (dayNight.isNight && Math.random() < 0.7 && enemies.length < cap) spawnEnemy();
       if (dayNight.isNight && Math.random() < 0.5 && enemies.length < cap) spawnEnemy();
     }
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
       const def = ENEMY_DEF[e.type];
+      if (e.healthBarT > 0) e.healthBarT -= dt;
       const dx = targetPosition[0] - e.x, dz = targetPosition[2] - e.z;
       let d = Math.hypot(dx, dz);
-      if (d > 160) { enemies.splice(i, 1); continue; }
+      if (d > 160) { enemies.splice(i, 1); removeHealthBar(e); continue; }
       if (d < 1e-3) d = 1e-3;
       const ux = dx/d, uz = dz/d;
       if (def.explodes) {
@@ -3098,6 +802,7 @@ function updateSurvival(dt) {
       while (dy < -Math.PI) dy += Math.PI*2;
       e.yaw += dy * 0.28;
       e.walkPhase += dt * 5;
+      if (e.healthBarT > 0) e.healthBarT -= dt;
     }
   }
 
@@ -3107,10 +812,131 @@ function updateSurvival(dt) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   4 · GUN
+   6 · HEALTH BARS  (projected DOM elements)
+   ══════════════════════════════════════════════════════════ */
+const healthBars = new Map();
+const _mvp = mat4.create();
+const _p4  = new Float32Array(4);
+
+function getHealthBar(e) {
+  let b = healthBars.get(e);
+  if (!b) {
+    const el = document.createElement('div');
+    el.style.cssText = `
+      position:absolute;transform:translate(-50%,-50%);
+      pointer-events:none;display:none;
+    `;
+    const border = document.createElement('div');
+    border.style.cssText = `
+      background:rgba(0,0,0,0.75);
+      border:1px solid rgba(0,0,0,0.9);
+      border-radius:3px;
+      box-shadow:0 0 4px rgba(0,0,0,0.8);
+      padding:1px;
+    `;
+    const fill = document.createElement('div');
+    fill.style.cssText = `
+      height:100%;width:100%;
+      background:linear-gradient(90deg,#4f4,#8f8);
+      border-radius:2px;
+      transition:width .12s linear, background .25s;
+    `;
+    border.appendChild(fill);
+    el.appendChild(border);
+    healthLayer.appendChild(el);
+    b = { el, border, fill };
+    healthBars.set(e, b);
+  }
+  return b;
+}
+function removeHealthBar(e) {
+  const b = healthBars.get(e);
+  if (b) { b.el.remove(); healthBars.delete(e); }
+}
+
+function updateHealthBars() {
+  mat4.multiply(_mvp, projectionMatrix, modelViewMatrix);
+  const W = canvas.width, H = canvas.height;
+  for (const e of enemies) {
+    /* Only render bar when it should be visible */
+    const showBar = (e.healthBarT > 0) || (e.hp < e.maxHp) || e.type === 'boss';
+    const b = getHealthBar(e);
+    if (!showBar) { b.el.style.display = 'none'; continue; }
+
+    /* Height offset above the head */
+    const headY = (e.type === 'boss' ? 8.5 : (e.type === 'brute' ? 3.6 : 2.6));
+    _p4[0] = e.x;
+    _p4[1] = e.y + headY;
+    _p4[2] = e.z;
+    _p4[3] = 1;
+
+    /* manual mat4 * vec4 */
+    const m = _mvp;
+    const cx = m[0]*_p4[0] + m[4]*_p4[1] + m[8] * _p4[2] + m[12]*_p4[3];
+    const cy = m[1]*_p4[0] + m[5]*_p4[1] + m[9] * _p4[2] + m[13]*_p4[3];
+    const cz = m[2]*_p4[0] + m[6]*_p4[1] + m[10]*_p4[2] + m[14]*_p4[3];
+    const cw = m[3]*_p4[0] + m[7]*_p4[1] + m[11]*_p4[2] + m[15]*_p4[3];
+
+    if (cw <= 0.05) { b.el.style.display = 'none'; continue; }
+    const ndcX = cx / cw;
+    const ndcY = cy / cw;
+    if (ndcX < -1.15 || ndcX > 1.15 || ndcY < -1.15 || ndcY > 1.15) {
+      b.el.style.display = 'none';
+      continue;
+    }
+    const sx = (ndcX * 0.5 + 0.5) * W;
+    const sy = (1 - (ndcY * 0.5 + 0.5)) * H;
+
+    /* Bar width scales with distance for nicer look */
+    const dist = Math.hypot(e.x - position[0], e.y - position[1], e.z - position[2]);
+    const scale = Math.max(0.25, Math.min(1.2, 40 / dist));
+    const barW = Math.round((e.type === 'boss' ? 90 : 52) * scale);
+    const barH = Math.round((e.type === 'boss' ? 10 : 7) * scale);
+
+    b.el.style.display = 'block';
+    b.el.style.left = sx.toFixed(1) + 'px';
+    b.el.style.top  = sy.toFixed(1) + 'px';
+    b.el.style.width  = barW + 'px';
+    b.el.style.height = barH + 'px';
+
+    const pct = Math.max(0, e.hp / e.maxHp);
+    b.fill.style.width = (pct * 100).toFixed(0) + '%';
+    if (pct > 0.6)      b.fill.style.background = 'linear-gradient(90deg,#2d2,#7f7)';
+    else if (pct > 0.3) b.fill.style.background = 'linear-gradient(90deg,#f82,#fc4)';
+    else                b.fill.style.background = 'linear-gradient(90deg,#d00,#f44)';
+  }
+  /* purge stale */
+  for (const [e, b] of healthBars) {
+    if (enemies.indexOf(e) === -1) { b.el.remove(); healthBars.delete(e); }
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   7 · GUN  (fire + recoil animation)
    ══════════════════════════════════════════════════════════ */
 let muzzleFlashT = 0;
 let hitMarkerT   = 0;
+let recoilT      = 0;
+
+function fireRecoil() {
+  recoilT = 0.11;
+}
+
+function updateGunVisual(dt) {
+  if (recoilT > 0) {
+    recoilT -= dt;
+    const p = Math.max(0, recoilT / 0.11);
+    /* Kick the gun back and rotate slightly */
+    gunEl.style.transform = `translate(${(p*30).toFixed(1)}px, ${(p*50).toFixed(1)}px) rotate(${(-p*14).toFixed(1)}deg) scale(${1 + p*0.05})`;
+    gunFlash.style.opacity = p.toFixed(2);
+    crosshair.style.transform = `translate(-50%,-50%) scale(${1 + p*0.5})`;
+  } else {
+    if (gunEl.style.transform !== '') gunEl.style.transform = '';
+    if (gunFlash.style.opacity !== '0') gunFlash.style.opacity = '0';
+    if (crosshair.style.transform !== 'translate(-50%,-50%)')
+      crosshair.style.transform = 'translate(-50%,-50%)';
+  }
+}
 
 function shoot() {
   if (!survival.on) return;
@@ -3120,6 +946,8 @@ function shoot() {
   if (survival.recharge > 1.4) survival.recharge = 1.4;
   playSfx('gunshot');
   muzzleFlashT = 0.09;
+  fireRecoil();
+
   const cp = Math.cos(mouseY);
   const dx0 = Math.sin(mouseX) * cp;
   const dy0 = Math.sin(mouseY);
@@ -3145,13 +973,19 @@ function shoot() {
     }
     if (best) {
       best.hp -= 9 + Math.random() * 8;
+      best.healthBarT = 3.0;
       hitAnything = true;
       if (best.hp <= 0) {
         const idx = enemies.indexOf(best);
-        if (idx >= 0) enemies.splice(idx, 1);
+        if (idx >= 0) { enemies.splice(idx, 1); removeHealthBar(best); }
         survival.food += 1;
         if (Math.random() < 0.4) survival.stone += 1;
         if (Math.random() < 0.3) survival.wood  += 1;
+        if (best.type === 'boss') {
+          redAmbient.style.opacity = '0';
+          redFlash.style.opacity = '0.8';
+          setTimeout(() => { redFlash.style.opacity = '0'; }, 700);
+        }
       }
     }
   }
@@ -3160,7 +994,7 @@ function shoot() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   5 · RESPAWN
+   8 · RESPAWN
    ══════════════════════════════════════════════════════════ */
 function respawnPlayer() {
   if (car.driving) exitCar();
@@ -3170,13 +1004,18 @@ function respawnPlayer() {
   velocityY = 0; grounded = true;
   survival.hp = survival.maxHp;
   survival.hitCd = 1.5;
-  if (survival.on) { enemies.length = 0; enemySpawnTimer = 2; }
+  if (survival.on) {
+    for (const e of enemies) removeHealthBar(e);
+    enemies.length = 0;
+    enemySpawnTimer = 2;
+  }
+  redAmbient.style.opacity = '0';
   playSfx('hit');
   updateSurvivalHud();
 }
 
 /* ══════════════════════════════════════════════════════════
-   6 · STRUCTURES
+   9 · STRUCTURES
    ══════════════════════════════════════════════════════════ */
 const STRUCT_DEFS = [
   { name:'hut',      res:'wood',  amt:3 },
@@ -3186,7 +1025,7 @@ const STRUCT_DEFS = [
   { name:'ruins',    res:'stone', amt:3 },
   { name:'house',    res:'wood',  amt:5 }
 ];
-const STRUCT_CELL   = 40;   /* tighter grid = more structures per area */
+const STRUCT_CELL   = 40;
 const STRUCT_RADIUS = 230;
 const structures    = [];
 const gatheredAt    = new Map();
@@ -3203,7 +1042,6 @@ function rebuildStructures(force) {
   for (let dz = -R; dz <= R; dz++) {
     for (let dx = -R; dx <= R; dx++) {
       const gx = cix + dx, gz = ciz + dz;
-      /* sparser check = fewer structures, raise threshold to 0.55 to spawn more */
       if (hash2(gx, gz, seed) > 0.55) continue;
       const r1 = hash2(gx + 101, gz - 203, seed);
       const r2 = hash2(gx - 307, gz + 509, seed);
@@ -3223,7 +1061,7 @@ function rebuildStructures(force) {
     }
   }
 }
-function updateStructures(dt) {
+function updateStructures() {
   const now = performance.now();
   for (const s of structures) {
     const dx = targetPosition[0] - s.x, dz = targetPosition[2] - s.z;
@@ -3240,9 +1078,9 @@ function updateStructures(dt) {
 }
 
 /* ══════════════════════════════════════════════════════════
-   7 · RENDER GEOMETRY
+   10 · RENDER GEOMETRY (car, enemies, structures)
    ══════════════════════════════════════════════════════════ */
-const EXTRA_BOX_CAP = 4000;
+const EXTRA_BOX_CAP = 8000;
 const extraData = new Float32Array(EXTRA_BOX_CAP * VERTS_PER_BOX * FLOATS_PER_VERT);
 const extraVBO  = gl.createBuffer();
 const extraVAO  = gl.createVertexArray();
@@ -3307,15 +1145,15 @@ function appendEnemy(out, k, e) {
     }
     return k;
   }
-  const scale = e.type === 'brute' ? 1.4 : 1.0;
+  const scale = e.type === 'brute' ? 1.4 : (e.type === 'boss' ? 3.5 : 1.0);
   B(-0.15*scale, 0.34*scale,  swing, 0.13*scale, 0.34*scale, 0.13*scale, dark);
   B( 0.15*scale, 0.34*scale, -swing, 0.13*scale, 0.34*scale, 0.13*scale, dark);
   B( 0.00, 1.10*scale, 0.00, 0.30*scale, 0.44*scale, 0.17*scale, c);
   B(-0.38*scale, 1.25*scale, -0.30*scale, 0.10*scale, 0.10*scale, 0.38*scale, c);
   B( 0.38*scale, 1.25*scale, -0.30*scale, 0.10*scale, 0.10*scale, 0.38*scale, c);
   B( 0.00, 1.75*scale, 0.00, 0.26*scale, 0.26*scale, 0.26*scale, c);
-  B(-0.08*scale, 1.80*scale, -0.24*scale, 0.035, 0.035, 0.035, [1.0, 0.15, 0.10]);
-  B( 0.08*scale, 1.80*scale, -0.24*scale, 0.035, 0.035, 0.035, [1.0, 0.15, 0.10]);
+  B(-0.08*scale, 1.80*scale, -0.24*scale, 0.045*scale, 0.045*scale, 0.045*scale, [1.0, 0.15, 0.10]);
+  B( 0.08*scale, 1.80*scale, -0.24*scale, 0.045*scale, 0.045*scale, 0.045*scale, [1.0, 0.15, 0.10]);
   return k;
 }
 
@@ -3429,7 +1267,7 @@ function drawExtras() {
 }
 
 /* ══════════════════════════════════════════════════════════
-   8 · NETWORK — car + enemy sync
+   11 · NETWORK
    ══════════════════════════════════════════════════════════ */
 function sendCarState(force) {
   const now = performance.now();
@@ -3473,7 +1311,7 @@ function sendEnemyState() {
     t: e.type,
     x: +e.x.toFixed(2), y: +e.y.toFixed(2), z: +e.z.toFixed(2),
     yaw: +e.yaw.toFixed(2), wp: +e.walkPhase.toFixed(2),
-    fz: e.fuse
+    fz: e.fuse, hp: e.hp, mx: e.maxHp
   }));
   const pkt = JSON.stringify({ type:'enemies', list });
   for (const pid in channels) {
@@ -3484,18 +1322,23 @@ function sendEnemyState() {
 
 function applyEnemyState(list) {
   if (isMobHost || !survival.on) return;
-  while (enemies.length > list.length) enemies.pop();
+  while (enemies.length > list.length) {
+    const e = enemies.pop(); removeHealthBar(e);
+  }
   for (let i = 0; i < list.length; i++) {
     const inc = list[i];
     let e = enemies[i];
     if (!e) {
-      e = { vx:0, vz:0, hp:100, soundTimer:99, x:inc.x, y:inc.y, z:inc.z, yaw:inc.yaw, fuse:-1 };
+      e = { vx:0, vz:0, hp:100, maxHp:100, soundTimer:99, x:inc.x, y:inc.y, z:inc.z, yaw:inc.yaw, fuse:-1, healthBarT:0 };
       enemies[i] = e;
     }
     e.type = inc.t;
     e.netX = inc.x; e.netY = inc.y; e.netZ = inc.z;
     e.netYaw = inc.yaw; e.walkPhase = inc.wp;
     e.fuse = inc.fz;
+    e.hp = inc.hp;
+    e.maxHp = inc.mx;
+    if (inc.hp < inc.mx) e.healthBarT = 3.0;
   }
 }
 
@@ -3511,7 +1354,7 @@ handleChannelMessage = function (peerID, raw) {
 };
 
 /* ══════════════════════════════════════════════════════════
-   9 · HUD + BUTTONS
+   12 · HUD + BUTTONS
    ══════════════════════════════════════════════════════════ */
 const survivalHud = $('survival-hud');
 const hpBar       = $('hp-bar');
@@ -3528,8 +1371,17 @@ function updateSurvivalHud() {
   survivalHud.classList.toggle('on', survival.on);
 }
 function updateSurvivalBtn() {
-  survivalBtn.textContent = '💀 Survival Mode: ' + (survival.on ? 'ON' : 'OFF');
-  survivalBtn.classList.toggle('on', survival.on);
+  if (survival.locked) {
+    survivalBtn.textContent = '💀 SURVIVAL MODE — LOCKED';
+    survivalBtn.classList.add('on');
+    survivalBtn.disabled = true;
+  } else if (survival.on) {
+    survivalBtn.textContent = '💀 Survival Mode: ON';
+    survivalBtn.classList.add('on');
+  } else {
+    survivalBtn.textContent = '💀 Survival Mode: OFF';
+    survivalBtn.classList.remove('on');
+  }
 }
 function updateCarBtn() {
   carBtn.textContent = car.driving ? '🚗 Exit Car  (E)' : '🚗 Enter Car  (E)';
@@ -3542,6 +1394,7 @@ crosshair.id = 'crosshair';
 crosshair.style.cssText = `
   position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
   width:22px;height:22px;pointer-events:none;z-index:13;display:none;
+  transition:transform .08s;
 `;
 crosshair.innerHTML = `
   <svg width="22" height="22" viewBox="0 0 22 22" xmlns="http://www.w3.org/2000/svg">
@@ -3551,36 +1404,20 @@ crosshair.innerHTML = `
     <line x1="14" y1="11" x2="20" y2="11" stroke="#e8ff8a" stroke-width="2" stroke-linecap="round"/>
     <circle cx="11" cy="11" r="1.3" fill="#e8ff8a"/>
   </svg>
-  <div id="muzzle-flash" style="
-    position:absolute;inset:-14px;border-radius:50%;
-    background:radial-gradient(circle,rgba(255,230,140,.85),transparent 65%);
-    opacity:0;transition:opacity .07s;pointer-events:none"></div>
   <div id="hit-marker" style="
     position:absolute;inset:-8px;color:#ff5a5a;font:bold 20px monospace;
     line-height:38px;text-align:center;opacity:0;transition:opacity .12s;pointer-events:none">✕</div>
 `;
 document.body.appendChild(crosshair);
-const muzzleFlashEl = crosshair.querySelector('#muzzle-flash');
-const hitMarkerEl   = crosshair.querySelector('#hit-marker');
+const hitMarkerEl = crosshair.querySelector('#hit-marker');
 
+/* survival button — starts the countdown (does NOT toggle off after lock) */
 survivalBtn.addEventListener('click', () => {
-  survival.on = !survival.on;
+  if (survival.locked) return;
+  if (survival.on && timer.phase === 'countdown') return;   // already counting
   if (!survival.on) {
-    enemies.length = 0;
-  } else {
-    enemySpawnTimer = 1.0;
-    ensureAudio();
-    if (flightMode) {
-      flightMode = false;
-      velocityY = 0;
-      updateFlyLabel();
-      const flyBtn = $('btn-fly');
-      if (flyBtn) flyBtn.classList.remove('on');
-    }
+    startSurvivalCountdown();
   }
-  crosshair.style.display = survival.on ? 'block' : 'none';
-  updateSurvivalBtn();
-  updateSurvivalHud();
 });
 
 carBtn.addEventListener('click', () => { tryToggleCar(); });
@@ -3607,7 +1444,7 @@ $('btn-car')?.addEventListener('pointerdown', e => {
 });
 
 /* ══════════════════════════════════════════════════════════
-   10 · FUNCTION HOOKS
+   13 · FUNCTION HOOKS
    ══════════════════════════════════════════════════════════ */
 const _handleKeyInput = handleKeyInput;
 handleKeyInput = function () {
@@ -3676,7 +1513,7 @@ addEventListener('keydown', e => {
 });
 
 /* ══════════════════════════════════════════════════════════
-   11 · MAIN LOOP WRAP
+   14 · MAIN LOOP WRAP
    ══════════════════════════════════════════════════════════ */
 let _lastExtFrame = performance.now();
 const _animate = animate;
@@ -3690,18 +1527,28 @@ animate = function () {
   rebuildStructures(false);
   updateStructures(dt);
 
-  sendCarState(false);
-  sendEnemyState();
+  /* Screen shake — offset the camera target slightly */
+  if (shake.t > 0) {
+    shake.t -= dt;
+    const p = shake.t;
+    const amp = shake.amp * p * p;
+    targetPosition[0] += (Math.random() - 0.5) * amp;
+    targetPosition[1] += (Math.random() - 0.5) * amp * 0.5;
+    targetPosition[2] += (Math.random() - 0.5) * amp;
+  }
 
-  if (muzzleFlashT > 0) {
-    muzzleFlashT -= dt;
-    muzzleFlashEl.style.opacity = Math.max(0, muzzleFlashT / 0.09);
-  } else muzzleFlashEl.style.opacity = 0;
-
+  /* Gun recoil + muzzle flash + crosshair hit marker */
+  updateGunVisual(dt);
   if (hitMarkerT > 0) {
     hitMarkerT -= dt;
     hitMarkerEl.style.opacity = Math.max(0, hitMarkerT / 0.12);
-  } else hitMarkerEl.style.opacity = 0;
+  } else if (hitMarkerEl.style.opacity !== '0') hitMarkerEl.style.opacity = '0';
+
+  /* Health bars projected to screen */
+  updateHealthBars();
+
+  sendCarState(false);
+  sendEnemyState();
 
   if ((animate._c = ((animate._c || 0) + 1) % 6) === 0) {
     updateSurvivalHud();
@@ -3724,6 +1571,7 @@ updateCarBtn();
 /* time-of-day indicator */
 const dnIndicator = document.createElement('div');
 dnIndicator.id = 'timeofday';
+dnIndicator.style.cssText = 'position:fixed;right:8px;top:44px;z-index:10;color:#ffd;font-size:12px;';
 document.body.appendChild(dnIndicator);
 setInterval(() => {
   const h = Math.floor(dayNight.time * 24);
@@ -3733,9 +1581,7 @@ setInterval(() => {
     String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
 }, 500);
 
-console.log('%c✔ Full game loaded: FAST WALK · guns · day/night · CREEPERS · HOUSES · no-fly-in-survival · screams',
-            'color:#4f8;font-weight:bold');
+console.log('%c✔ HORROR UPDATE ACTIVE: countdown · lock · 500HP boss · red screen · health bars · gun anim · 100 zombies at night',
+            'color:#f44;font-weight:bold;font-size:14px');
 })();
 </script>
-</body>
-</html>
