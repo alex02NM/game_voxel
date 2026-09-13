@@ -15,7 +15,6 @@ canvas{display:block;width:100vw;height:100dvh;touch-action:none;-webkit-tap-hig
 button{-webkit-tap-highlight-color:transparent}
 .hud{position:fixed;left:8px;z-index:10;color:#0f0}
 #fps{top:8px}#mode{top:26px;color:#0ff}#biome{top:44px;color:#ff0}#net{top:62px;color:#f80}
-#weapon{top:80px;color:#f8f}#coords{top:98px;color:#8cf}
 #status{position:fixed;right:8px;top:8px;z-index:10;color:#0af;font-size:12px;text-align:right}
 #fly{position:fixed;right:8px;bottom:8px;z-index:10;color:#f0f}
 #help{position:fixed;left:8px;bottom:8px;z-index:10;color:#888;font-size:12px}
@@ -35,23 +34,6 @@ button{-webkit-tap-highlight-color:transparent}
 #sync-note{display:block;margin-top:8px;color:#6af;font-size:10px}
 html.pseudo-fullscreen,html.pseudo-fullscreen body{position:fixed;inset:0;width:100%;height:100%;overflow:hidden}
 html.pseudo-fullscreen body{padding:0}
-
-/* ── crosshair + hit marker ── */
-#crosshair{position:fixed;left:50%;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;z-index:12;
-  pointer-events:none;display:none}
-#crosshair.on{display:block}
-#crosshair::before,#crosshair::after{content:'';position:absolute;background:rgba(150,255,190,.9);
-  box-shadow:0 0 3px rgba(0,0,0,.95)}
-#crosshair::before{left:9px;top:0;width:2px;height:20px}
-#crosshair::after{left:0;top:9px;width:20px;height:2px}
-#hitmark{position:fixed;left:50%;top:50%;width:28px;height:28px;margin:-14px 0 0 -14px;z-index:13;
-  pointer-events:none;opacity:0}
-#hitmark.on{opacity:1}
-#hitmark::before,#hitmark::after{content:'';position:absolute;left:12px;top:0;width:4px;height:28px;
-  background:#ff5544;box-shadow:0 0 4px #000;transform-origin:center}
-#hitmark::before{transform:rotate(45deg)}
-#hitmark::after{transform:rotate(-45deg)}
-
 #touch-controls{position:fixed;inset:0;z-index:15;pointer-events:none;display:none;touch-action:none}
 #touch-controls.enabled{display:block}
 #joystick{position:absolute;left:max(18px,env(safe-area-inset-left,0px) + 14px);
@@ -69,8 +51,8 @@ html.pseudo-fullscreen body{padding:0}
 #right-controls{position:absolute;right:max(14px,env(safe-area-inset-right,0px) + 12px);
   bottom:max(16px,env(safe-area-inset-bottom,0px) + 16px);display:flex;flex-direction:column;
   align-items:flex-end;gap:12px}
-#secondary-row{display:flex;gap:8px}
-#primary-grid{display:grid;grid-template-columns:82px 82px 82px;grid-template-rows:82px 82px;gap:10px}
+#secondary-row{display:flex;gap:10px}
+#primary-grid{display:grid;grid-template-columns:84px 84px;grid-template-rows:84px 84px;gap:12px}
 .tbtn{pointer-events:auto;touch-action:none;display:flex;align-items:center;justify-content:center;
   border:2px solid rgba(140,200,255,.55);color:#e6f4ff;cursor:pointer;padding:0;font-weight:700;
   background:radial-gradient(circle at 35% 30%,rgba(120,200,255,.35),rgba(28,55,85,.72));
@@ -79,13 +61,9 @@ html.pseudo-fullscreen body{padding:0}
   background:radial-gradient(circle at 35% 30%,rgba(160,255,210,.6),rgba(40,145,115,.92))}
 .tbtn.on{border-color:rgba(180,255,220,.95);
   background:radial-gradient(circle at 35% 30%,rgba(160,255,210,.55),rgba(35,130,100,.9))}
-.tbtn.lg{width:82px;height:82px;border-radius:50%;font-size:28px}
-.tbtn.sm{width:52px;height:52px;border-radius:13px;font-size:20px}
-#btn-fire{border-color:rgba(255,150,110,.7);
-  background:radial-gradient(circle at 35% 30%,rgba(255,150,110,.4),rgba(90,30,20,.78))}
-#btn-fire:active{background:radial-gradient(circle at 35% 30%,rgba(255,200,140,.75),rgba(150,60,30,.95))}
-#btn-fly{grid-area:1/1}#btn-sprint{grid-area:1/2}#btn-fire{grid-area:1/3}
-#btn-down{grid-area:2/1}#btn-jump{grid-area:2/2}#btn-weapon{grid-area:2/3}
+.tbtn.lg{width:84px;height:84px;border-radius:50%;font-size:30px}
+.tbtn.sm{width:58px;height:58px;border-radius:14px;font-size:22px}
+#btn-fly{grid-area:1/1}#btn-sprint{grid-area:1/2}#btn-down{grid-area:2/1}#btn-jump{grid-area:2/2}
 #fs-fab{position:fixed;top:max(12px,env(safe-area-inset-top,0px) + 10px);
   right:max(12px,env(safe-area-inset-right,0px) + 10px);z-index:30;display:none;
   width:50px;height:50px;border-radius:14px;border:1px solid rgba(140,200,255,.55);
@@ -103,16 +81,33 @@ html.pseudo-fullscreen body{padding:0}
 @media (max-width:900px){
   #params{width:210px;top:62px;font-size:11px}
   #help{display:none}
-  #fps,#mode,#biome,#net,#weapon,#coords{font-size:11px}
+  #fps,#mode,#biome,#net{font-size:11px}
 }
 @media (max-height:480px){
   #joystick{width:128px;height:128px}
   #stick{width:58px;height:58px;margin:-29px 0 0 -29px}
-  #primary-grid{grid-template-columns:70px 70px 70px;grid-template-rows:70px 70px;gap:8px}
-  .tbtn.lg{width:70px;height:70px;font-size:24px}
-  .tbtn.sm{width:46px;height:46px;font-size:17px}
+  #primary-grid{grid-template-columns:72px 72px;grid-template-rows:72px 72px;gap:10px}
+  .tbtn.lg{width:72px;height:72px;font-size:26px}
+  .tbtn.sm{width:50px;height:50px;font-size:19px}
 }
 @media (max-width:900px),(pointer:coarse),(hover:none){#params{display:none!important}}
+
+/* ══════════ SURVIVAL / CAR HUD ══════════ */
+#survival-hud{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:12;
+  color:#fff;font:bold 13px monospace;text-align:center;pointer-events:none;
+  text-shadow:0 2px 6px #000,0 0 4px #000;line-height:1.7;display:none}
+#survival-hud.on{display:block}
+#survival-hud .bar{display:inline-block;width:150px;height:12px;border:1px solid #6f6;
+  vertical-align:middle;background:#111;border-radius:4px;overflow:hidden}
+#survival-hud .bar>i{display:block;height:100%;background:linear-gradient(90deg,#f44,#fa4);
+  transition:width .15s;width:100%}
+#survival-hud .ammo{color:#ff6}
+#survival-hud .res{color:#8cf}
+#car-prompt{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:14;
+  color:#ffe;font:bold 13px monospace;text-shadow:0 2px 6px #000,0 0 4px #000;
+  padding:6px 14px;border-radius:10px;background:rgba(0,0,0,.5);
+  border:1px solid rgba(255,230,140,.4);pointer-events:none;display:none}
+#car-prompt.on{display:block}
 </style>
 </head>
 <body>
@@ -121,13 +116,17 @@ html.pseudo-fullscreen body{padding:0}
 <div id="mode"  class="hud"></div>
 <div id="biome" class="hud"></div>
 <div id="net"   class="hud"></div>
-<div id="weapon" class="hud"></div>
-<div id="coords" class="hud"></div>
 <div id="fly"></div>
 <div id="status"></div>
-<div id="crosshair"></div>
-<div id="hitmark"></div>
-<div id="help">WASD · Space jump · F fly · LMB shoot/swing · RMB dig · Shift+RMB raise · 1/2 weapon · E car · R reset · V mode · [ ] block size</div>
+<div id="help">WASD · Space jump · F fly · LMB raise · RMB dig · R reset · V mode · [ ] block size · E drive</div>
+
+<!-- NEW: survival / car HUD -->
+<div id="survival-hud">
+  <div>❤ <span class="bar"><i id="hp-bar"></i></span></div>
+  <div><span class="ammo" id="ammo-text">AMMO 6/6</span> &nbsp;·&nbsp;
+       <span class="res"  id="res-text">🪵 0 &nbsp; 🪨 0 &nbsp; 🍖 0</span></div>
+</div>
+<div id="car-prompt">Press <b>E</b> to drive</div>
 
 <div id="touch-controls">
   <div id="joystick"><div id="stick"></div></div>
@@ -136,16 +135,15 @@ html.pseudo-fullscreen body{padding:0}
       <button class="tbtn sm" id="btn-raise">+</button>
       <button class="tbtn sm" id="btn-dig">−</button>
       <button class="tbtn sm" id="btn-mode">V</button>
-      <button class="tbtn sm" id="btn-car">🚗</button>
       <button class="tbtn sm" id="btn-reset">↺</button>
+      <button class="tbtn sm" id="btn-shoot">🔫</button>
+      <button class="tbtn sm" id="btn-car">🚗</button>
     </div>
     <div id="primary-grid">
       <button class="tbtn lg" id="btn-fly">✈</button>
       <button class="tbtn lg" id="btn-sprint">⚡</button>
-      <button class="tbtn lg" id="btn-fire">🔥</button>
       <button class="tbtn lg" id="btn-down">▼</button>
       <button class="tbtn lg" id="btn-jump">▲</button>
-      <button class="tbtn lg" id="btn-weapon">🔫</button>
     </div>
   </div>
 </div>
@@ -168,8 +166,10 @@ html.pseudo-fullscreen body{padding:0}
     <input type="range" id="tree_d" min="0" max="3" step="0.05" value="1.6"></label>
   <button id="rainforest-btn">🌴 Rainforest Preset</button>
 
-  <label>🚗 Car Density <span class="val" id="car_d_val">1.00×</span>
-    <input type="range" id="car_d" min="0" max="3" step="0.05" value="1.0"></label>
+  <!-- NEW buttons -->
+  <button id="respawn-btn">🏠 Respawn (0, 0)</button>
+  <button id="survival-btn">💀 Survival Mode: OFF</button>
+  <button id="car-btn">🚗 Enter Car</button>
 
   <label>🎵 Music Volume <span class="val" id="music_vol_val">50%</span>
     <input type="range" id="music_vol" min="0" max="100" step="1" value="25"></label>
@@ -879,7 +879,6 @@ const DESPAWN_DIST = 145;
 const MOB_MAX_BOXES = 8;
 const VERTS_PER_BOX = 36;
 const FLOATS_PER_VERT = 9;
-const MOB_STRIDE = FLOATS_PER_VERT * 4;
 let nextMobId = 1;
 let spawnTimer = 1;
 let isMobHost = true;
@@ -1041,47 +1040,6 @@ function pushRotBox(out, k, mx, my, mz, cos, sin,
   }
   return k;
 }
-/* oriented box under an arbitrary orthonormal basis (Rx,Ry,Rz columns) */
-function pushBasisBox(out, k, ox, oy, oz, Rx, Ry, Rz, hx, hy, hz, r, g, b) {
-  for (let fi = 0; fi < 6; fi++) {
-    const f = BOX_FACES[fi];
-    const nx = Rx[0]*f[0] + Ry[0]*f[1] + Rz[0]*f[2];
-    const ny = Rx[1]*f[0] + Ry[1]*f[1] + Rz[1]*f[2];
-    const nz = Rx[2]*f[0] + Ry[2]*f[1] + Rz[2]*f[2];
-    for (let vi = 0; vi < 6; vi++) {
-      const b3 = 3 + vi * 3;
-      const px = f[b3] * hx, py = f[b3+1] * hy, pz = f[b3+2] * hz;
-      out[k++] = ox + Rx[0]*px + Ry[0]*py + Rz[0]*pz;
-      out[k++] = oy + Rx[1]*px + Ry[1]*py + Rz[1]*pz;
-      out[k++] = oz + Rx[2]*px + Ry[2]*py + Rz[2]*pz;
-      out[k++] = nx; out[k++] = ny; out[k++] = nz;
-      out[k++] = r;  out[k++] = g;  out[k++] = b;
-    }
-  }
-  return k;
-}
-/* place a box whose *local* centre is lc, inside the oriented frame */
-function pushLocalBox(out, k, origin, Rx, Ry, Rz, lc, h, col) {
-  const ox = origin[0] + Rx[0]*lc[0] + Ry[0]*lc[1] + Rz[0]*lc[2];
-  const oy = origin[1] + Rx[1]*lc[0] + Ry[1]*lc[1] + Rz[1]*lc[2];
-  const oz = origin[2] + Rx[2]*lc[0] + Ry[2]*lc[1] + Rz[2]*lc[2];
-  return pushBasisBox(out, k, ox, oy, oz, Rx, Ry, Rz,
-                      h[0], h[1], h[2], col[0], col[1], col[2]);
-}
-/* Rodrigues rotation of an orthonormal basis about a world-space axis */
-function rotBasis(Rx, Ry, Rz, ax, ay, az, ang) {
-  const c = Math.cos(ang), s = Math.sin(ang), t = 1 - c;
-  const m0 = t*ax*ax + c,     m1 = t*ax*ay - s*az, m2 = t*ax*az + s*ay;
-  const m3 = t*ax*ay + s*az,  m4 = t*ay*ay + c,    m5 = t*ay*az - s*ax;
-  const m6 = t*ax*az - s*ay,  m7 = t*ay*az + s*ax, m8 = t*az*az + c;
-  const ap = v => [
-    m0*v[0] + m1*v[1] + m2*v[2],
-    m3*v[0] + m4*v[1] + m5*v[2],
-    m6*v[0] + m7*v[1] + m8*v[2],
-  ];
-  return [ap(Rx), ap(Ry), ap(Rz)];
-}
-
 function appendMob(out, k, m) {
   const cos = Math.cos(m.yaw), sin = Math.sin(m.yaw);
   const swing = Math.sin(m.walkPhase) * .22;
@@ -1133,6 +1091,7 @@ const mobVAO = gl.createVertexArray();
 gl.bindVertexArray(mobVAO);
 gl.bindBuffer(gl.ARRAY_BUFFER, mobVBO);
 gl.bufferData(gl.ARRAY_BUFFER, mobVertexData.byteLength, gl.DYNAMIC_DRAW);
+const MOB_STRIDE = FLOATS_PER_VERT * 4;
 gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, MOB_STRIDE, 0);
 gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, MOB_STRIDE, 12);
 gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, MOB_STRIDE, 24);
@@ -1197,6 +1156,8 @@ function mulberry32(a) {
 
 function makeTreeBuilder() {
   const pos = [], nrm = [], col = [];
+  const sub   = (u, v) => [u[0]-v[0], u[1]-v[1], u[2]-v[2]];
+  const cross = (u, v) => [u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]];
   const unit  = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0]/l, v[1]/l, v[2]/l]; };
   const tri = (a, b, c, n, ca, cb, cc) => {
     const nn = unit(n);
@@ -1359,7 +1320,7 @@ function buildTreeMesh(type) {
   return B;
 }
 
-const _treeMeshStore = (function buildAllTreeMeshes() {
+(function buildAllTreeMeshes() {
   const allPos = [], allNrm = [], allCol = [];
   let vertOffset = 0;
   for (let t = 0; t < TREE_TYPES; t++) {
@@ -1378,11 +1339,12 @@ const _treeMeshStore = (function buildAllTreeMeshes() {
     mesh[i*9+3] = allNrm[i*3+0]; mesh[i*9+4] = allNrm[i*3+1]; mesh[i*9+5] = allNrm[i*3+2];
     mesh[i*9+6] = allCol[i*3+0]; mesh[i*9+7] = allCol[i*3+1]; mesh[i*9+8] = allCol[i*3+2];
   }
-  return mesh;
+  const vbo = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, mesh, gl.STATIC_DRAW);
+  window.__treeVBO = vbo;
 })();
-const treeVBO = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, treeVBO);
-gl.bufferData(gl.ARRAY_BUFFER, _treeMeshStore, gl.STATIC_DRAW);
+const treeVBO = window.__treeVBO;
 
 const treeInstVBO = gl.createBuffer();
 const treeVAO = gl.createVertexArray();
@@ -1542,352 +1504,6 @@ function drawTrees() {
 }
 
 /* ════════════════════════════════════════════════════════════
-   6b2 · PROPS — cars, M16, sword   (new)
-   ════════════════════════════════════════════════════════════ */
-const CAR_CELL   = 45;
-const CAR_VIEW   = 180;          // must stay inside the 384u heightmap
-const CAR_MAX    = 48;
-const CAR_BOXES  = 16;
-const WEAPON_BOX_CAP = 32;
-const PROP_BOX_CAP = CAR_MAX * CAR_BOXES + WEAPON_BOX_CAP * 2;
-
-const propVertexData = new Float32Array(PROP_BOX_CAP * VERTS_PER_BOX * FLOATS_PER_VERT);
-const propVBO = gl.createBuffer();
-const propVAO = gl.createVertexArray();
-gl.bindVertexArray(propVAO);
-gl.bindBuffer(gl.ARRAY_BUFFER, propVBO);
-gl.bufferData(gl.ARRAY_BUFFER, propVertexData.byteLength, gl.DYNAMIC_DRAW);
-gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, MOB_STRIDE, 0);
-gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, MOB_STRIDE, 12);
-gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, MOB_STRIDE, 24);
-gl.bindVertexArray(null);
-
-function drawProps(k, camPos) {
-  if (k === 0) return;
-  gl.useProgram(mobProgram);
-  pushLighting(mobProgram, mobU);
-  gl.bindVertexArray(propVAO);
-  gl.bindBuffer(gl.ARRAY_BUFFER, propVBO);
-  gl.bufferSubData(gl.ARRAY_BUFFER, 0, propVertexData, 0, k);
-  gl.uniformMatrix4fv(mobU.u_projectionMatrix, false, projectionMatrix);
-  gl.uniformMatrix4fv(mobU.u_modelViewMatrix,  false, modelViewMatrix);
-  gl.uniform3f(mobU.u_cameraPosition, camPos[0], camPos[1], camPos[2]);
-  gl.uniform1f(mobU.u_fogDensity, FOG_DENSITY);
-  gl.disable(gl.CULL_FACE);
-  gl.drawArrays(gl.TRIANGLES, 0, k / FLOATS_PER_VERT);
-  gl.enable(gl.CULL_FACE);
-  gl.bindVertexArray(null);
-  gl.useProgram(program);
-}
-
-/* ── cars ── */
-let CAR_DENSITY = 1.0;
-const CAR_COLORS = [
-  [0.78,0.12,0.11],[0.13,0.28,0.72],[0.90,0.88,0.86],[0.11,0.11,0.12],
-  [0.92,0.70,0.12],[0.16,0.55,0.30],[0.55,0.16,0.62],[0.85,0.42,0.10],
-];
-const GLASS_COL = [0.06,0.09,0.12];
-const TYRE_COL  = [0.05,0.05,0.06];
-const RIM_COL   = [0.42,0.44,0.47];
-const LAMP_COL  = [2.4,2.2,1.4];
-const TAIL_COL  = [1.6,0.12,0.08];
-
-const carStates = new Map();
-const cars = [];
-let lastCarX = 1e9, lastCarZ = 1e9;
-
-function getCar(gx, gz) {
-  const key = gx + ',' + gz;
-  if (carStates.has(key)) return carStates.get(key);
-  let car = null;
-  const seed = 0xCAB5;
-  const h0 = hash2(gx * 7 + 11, gz * 13 + 5, seed);
-  if (h0 < 0.17 * CAR_DENSITY) {
-    const r1 = hash2(gx + 101, gz - 211, seed);
-    const r2 = hash2(gx - 303, gz + 407, seed);
-    const r3 = hash2(gx + 509, gz + 601, seed);
-    const r4 = hash2(gx - 707, gz - 809, seed);
-    const x = (gx + r1) * CAR_CELL;
-    const z = (gz + r2) * CAR_CELL;
-    const y = cachedHeightAt(x, z);
-    const sxa = Math.abs(cachedHeightAt(x + 3, z) - y);
-    const sza = Math.abs(cachedHeightAt(x, z + 3) - y);
-    if (y < 30 && Math.max(sxa, sza) < 2.4) {
-      car = {
-        x, z, y,
-        yaw: r3 * TAU,
-        color: CAR_COLORS[Math.floor(r4 * 9973) % CAR_COLORS.length],
-        speed: 0,
-      };
-    }
-  }
-  carStates.set(key, car);
-  return car;
-}
-
-function rebuildCarList(force) {
-  const cx = targetPosition[0], cz = targetPosition[2];
-  if (!force && Math.hypot(cx - lastCarX, cz - lastCarZ) < 12) return;
-  lastCarX = cx; lastCarZ = cz;
-  cars.length = 0;
-  const R = Math.ceil(CAR_VIEW / CAR_CELL);
-  const cix = Math.round(cx / CAR_CELL), ciz = Math.round(cz / CAR_CELL);
-  const R2 = CAR_VIEW * CAR_VIEW;
-  for (let dz = -R; dz <= R; dz++) {
-    for (let dx = -R; dx <= R; dx++) {
-      const car = getCar(cix + dx, ciz + dz);
-      if (!car) continue;
-      const ddx = car.x - cx, ddz = car.z - cz;
-      if (ddx*ddx + ddz*ddz > R2) continue;
-      cars.push(car);
-      if (cars.length >= CAR_MAX) return;
-    }
-  }
-}
-
-function buildCarGeometry(k) {
-  for (const car of cars) {
-    const c = Math.cos(car.yaw), s = Math.sin(car.yaw);
-    const Rx = [c, 0, s], Ry = [0, 1, 0], Rz = [-s, 0, c];
-    const o  = [car.x, car.y, car.z];
-    const col = car.color;
-    const dark = [col[0]*0.55, col[1]*0.55, col[2]*0.55];
-    // chassis
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [0,0.62,0], [0.86,0.26,1.95], col);
-    // skirt
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [0,0.42,0], [0.82,0.14,1.90], dark);
-    // cabin
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [0,1.06,0.30], [0.70,0.28,0.92], col);
-    // roof
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [0,1.36,0.30], [0.68,0.05,0.90], dark);
-    // windshield
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [0,1.06,-0.66], [0.64,0.26,0.05], GLASS_COL);
-    // rear window
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [0,1.06,1.26], [0.64,0.26,0.05], GLASS_COL);
-    // side windows
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [-0.72,1.08,0.30], [0.02,0.22,0.80], GLASS_COL);
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [ 0.72,1.08,0.30], [0.02,0.22,0.80], GLASS_COL);
-    // wheels
-    for (const wx of [-0.87, 0.87]) {
-      for (const wz of [-1.28, 1.28]) {
-        k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [wx, 0.36, wz], [0.15,0.36,0.36], TYRE_COL);
-        k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [wx*1.10, 0.36, wz], [0.03,0.19,0.19], RIM_COL);
-      }
-    }
-    // head lights
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [-0.55,0.72,-1.98], [0.22,0.10,0.05], LAMP_COL);
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [ 0.55,0.72,-1.98], [0.22,0.10,0.05], LAMP_COL);
-    // tail lights
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [-0.58,0.76,1.98], [0.20,0.09,0.05], TAIL_COL);
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [ 0.58,0.76,1.98], [0.20,0.09,0.05], TAIL_COL);
-    // bumpers
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [0,0.44,-2.02], [0.88,0.12,0.07], dark);
-    k = pushLocalBox(propVertexData, k, o, Rx,Ry,Rz, [0,0.44, 2.02], [0.88,0.12,0.07], dark);
-  }
-  return k;
-}
-
-/* ════════════════════════════════════════════════════════════
-   6b3 · WEAPONS — first-person M16 + sword  (new)
-   ════════════════════════════════════════════════════════════ */
-const WEAPON_M16 = 0, WEAPON_SWORD = 1;
-const WEAPON_NAMES = ['M16', 'SWORD'];
-let currentWeapon = WEAPON_M16;
-
-const MUZZLE_FLASH_TIME = 0.055;
-const SWING_DUR = 0.42;
-
-let muzzleFlash   = 0;
-let recoil        = 0;
-let m16Cooldown   = 0;
-let swingT        = -1;
-let swingCooldown = 0;
-let swingHitDone  = false;
-let hitMarker     = 0;
-let bobPhase      = 0;
-let bobStrength   = 0;
-let playerMoveAccum = 0;
-
-const M16_BOXES = [
-  {c:[0, 0.010,-0.520], h:[0.012,0.012,0.260], col:[0.17,0.18,0.19]}, // barrel
-  {c:[0, 0.010,-0.800], h:[0.018,0.018,0.014], col:[0.10,0.10,0.11]}, // muzzle
-  {c:[0, 0.048,-0.720], h:[0.008,0.030,0.010], col:[0.13,0.14,0.15]}, // front sight
-  {c:[0, 0.020,-0.660], h:[0.018,0.022,0.030], col:[0.14,0.15,0.16]}, // gas block
-  {c:[0, 0.005,-0.190], h:[0.027,0.032,0.115], col:[0.12,0.12,0.13]}, // handguard
-  {c:[0, 0.005,-0.070], h:[0.032,0.036,0.014], col:[0.18,0.19,0.20]}, // delta ring
-  {c:[0, 0.020, 0.055], h:[0.030,0.042,0.105], col:[0.17,0.18,0.19]}, // upper receiver
-  {c:[0, 0.082, 0.035], h:[0.011,0.022,0.085], col:[0.15,0.16,0.17]}, // carry handle
-  {c:[0, 0.106, 0.105], h:[0.020,0.010,0.020], col:[0.13,0.14,0.15]}, // rear sight
-  {c:[0,-0.040, 0.090], h:[0.027,0.032,0.080], col:[0.16,0.17,0.18]}, // lower receiver
-  {c:[0,-0.115, 0.075], h:[0.019,0.055,0.032], col:[0.12,0.12,0.13]}, // magazine
-  {c:[0,-0.178, 0.100], h:[0.019,0.032,0.030], col:[0.12,0.12,0.13]}, // magazine curve
-  {c:[0,-0.095, 0.190], h:[0.021,0.058,0.030], col:[0.11,0.11,0.12]}, // pistol grip
-  {c:[0,-0.052, 0.150], h:[0.021,0.008,0.035], col:[0.13,0.14,0.15]}, // trigger guard
-  {c:[0, 0.012, 0.265], h:[0.017,0.017,0.085], col:[0.16,0.17,0.18]}, // stock tube
-  {c:[0,-0.005, 0.410], h:[0.023,0.048,0.075], col:[0.12,0.12,0.13]}, // stock
-];
-
-const SWORD_BOXES = [
-  {c:[0, 0.420,0], h:[0.009,0.325,0.038], col:[0.78,0.81,0.86]}, // blade
-  {c:[0, 0.600,0], h:[0.007,0.155,0.030], col:[0.90,0.92,0.96]}, // fuller highlight
-  {c:[0, 0.775,0], h:[0.008,0.035,0.022], col:[0.92,0.94,0.98]}, // tip
-  {c:[0, 0.062,0], h:[0.098,0.013,0.024], col:[0.72,0.58,0.22]}, // crossguard
-  {c:[0,-0.005,0], h:[0.020,0.022,0.020], col:[0.62,0.48,0.18]}, // ricasso
-  {c:[0,-0.070,0], h:[0.018,0.048,0.018], col:[0.22,0.12,0.08]}, // grip
-  {c:[0,-0.135,0], h:[0.026,0.022,0.026], col:[0.72,0.58,0.22]}, // pommel
-];
-
-/* build camera basis vectors from the current look angles */
-function cameraBasis() {
-  const cy = Math.cos(mouseY), sy = Math.sin(mouseY);
-  const cx = Math.cos(mouseX), sx = Math.sin(mouseX);
-  return {
-    fwd:   [ sx*cy,  sy, -cx*cy ],
-    right: [ cx,     0,   sx     ],
-    up:    [ -sx*sy, cy,  cx*sy  ],
-  };
-}
-
-function buildWeaponGeometry(k) {
-  const {fwd, right, up} = cameraBasis();
-  let Rx = right.slice(), Ry = up.slice(), Rz = [-fwd[0], -fwd[1], -fwd[2]];
-
-  const amp = Math.min(1, bobStrength);
-  const bobX = Math.sin(bobPhase) * 0.018 * amp;
-  const bobY = -Math.abs(Math.cos(bobPhase)) * 0.015 * amp;
-
-  if (currentWeapon === WEAPON_M16) {
-    const rec = recoil;
-    const ox = 0.175 + bobX;
-    const oy = -0.165 + bobY - rec * 0.014;
-    const oz = 0.300 - rec * 0.080;
-
-    const origin = [
-      position[0] + right[0]*ox + up[0]*oy + fwd[0]*oz,
-      position[1] + right[1]*ox + up[1]*oy + fwd[1]*oz,
-      position[2] + right[2]*ox + up[2]*oy + fwd[2]*oz,
-    ];
-    /* recoil pitch-up */
-    [Rx, Ry, Rz] = rotBasis(Rx, Ry, Rz, right[0], right[1], right[2], rec * 0.24);
-
-    for (const b of M16_BOXES)
-      k = pushLocalBox(propVertexData, k, origin, Rx, Ry, Rz, b.c, b.h, b.col);
-
-    if (muzzleFlash > 0) {
-      const f = muzzleFlash / MUZZLE_FLASH_TIME;
-      const mz = 0.83;
-      const mx = origin[0] + Rz[0]*(-mz);
-      const my = origin[1] + Rz[1]*(-mz);
-      const mzz= origin[2] + Rz[2]*(-mz);
-      const s  = 0.055 + (1 - f) * 0.075;
-      k = pushBasisBox(propVertexData, k, mx, my, mzz, Rx, Ry, Rz,
-                       s, s, s, 2.6, 1.7, 0.55);
-      k = pushBasisBox(propVertexData, k, mx - fwd[0]*0.10,
-                       my - fwd[1]*0.10, mzz - fwd[2]*0.10,
-                       Rx, Ry, Rz, s*0.55, s*0.55, s*1.8, 3.2, 2.4, 0.9);
-    }
-  } else {
-    /* sword held at the right hip, blade angled forward/up */
-    let ox = 0.215 + bobX, oy = -0.240 + bobY, oz = 0.360;
-    if (swingT >= 0) {
-      const t = Math.min(1, swingT / SWING_DUR);
-      const a = Math.sin(t * Math.PI);
-      ox -= 0.30 * a;
-      oy += 0.14 * a;
-      oz += 0.12 * a;
-      [Rx, Ry, Rz] = rotBasis(Rx, Ry, Rz, up[0], up[1], up[2], -2.1 * a);
-      [Rx, Ry, Rz] = rotBasis(Rx, Ry, Rz, right[0], right[1], right[2], -0.55 * a);
-    }
-    /* base tilt: lean the blade forward */
-    [Rx, Ry, Rz] = rotBasis(Rx, Ry, Rz, right[0], right[1], right[2], -0.95);
-
-    const origin = [
-      position[0] + right[0]*ox + up[0]*oy + fwd[0]*oz,
-      position[1] + right[1]*ox + up[1]*oy + fwd[1]*oz,
-      position[2] + right[2]*ox + up[2]*oy + fwd[2]*oz,
-    ];
-    for (const b of SWORD_BOXES)
-      k = pushLocalBox(propVertexData, k, origin, Rx, Ry, Rz, b.c, b.h, b.col);
-  }
-  return k;
-}
-
-/* ── firing / melee ── */
-function fireWeapon() {
-  if (drivingCar) return;
-  if (currentWeapon === WEAPON_M16) {
-    if (m16Cooldown > 0) return;
-    m16Cooldown = 0.085;
-    muzzleFlash = MUZZLE_FLASH_TIME;
-    recoil = 1;
-    /* hitscan against mobs */
-    const {fwd} = cameraBasis();
-    const eye = position;
-    let best = null, bestT = 160;
-    for (const m of mobs) {
-      const cx = m.x - eye[0];
-      const cy = (m.y + 0.9) - eye[1];
-      const cz = m.z - eye[2];
-      const t = cx*fwd[0] + cy*fwd[1] + cz*fwd[2];
-      if (t < 0.5 || t > bestT) continue;
-      const px = cx - fwd[0]*t, py = cy - fwd[1]*t, pz = cz - fwd[2]*t;
-      const d2 = px*px + py*py + pz*pz;
-      if (d2 < 0.85 * 0.85) { bestT = t; best = m; }
-    }
-    if (best) killMob(best);
-  } else {
-    if (swingCooldown > 0) return;
-    swingT = 0;
-    swingHitDone = false;
-    swingCooldown = SWING_DUR + 0.14;
-  }
-}
-
-function killMob(mob) {
-  hitMarker = 0.22;
-  if (isMobHost) {
-    const i = mobs.indexOf(mob);
-    if (i >= 0) mobs.splice(i, 1);
-  } else {
-    const packet = JSON.stringify({type:"hit", mobId: mob.id});
-    for (const pid in channels) {
-      const ch = channels[pid];
-      if (ch?.readyState === "open") try { ch.send(packet); } catch {}
-    }
-  }
-}
-
-function updateWeapon(dt) {
-  if (m16Cooldown > 0) m16Cooldown -= dt;
-  if (swingCooldown > 0) swingCooldown -= dt;
-  if (muzzleFlash > 0) muzzleFlash = Math.max(0, muzzleFlash - dt);
-  if (recoil > 0) recoil = Math.max(0, recoil - dt * 7.5);
-  if (hitMarker > 0) hitMarker = Math.max(0, hitMarker - dt * 1.6);
-
-  if (swingT >= 0) {
-    swingT += dt;
-    const t = swingT / SWING_DUR;
-    if (!swingHitDone && t >= 0.30 && t <= 0.72) {
-      swingHitDone = true;
-      const {fwd} = cameraBasis();
-      const reach = 3.2;
-      for (let i = mobs.length - 1; i >= 0; i--) {
-        const m = mobs[i];
-        const dx = m.x - position[0];
-        const dy = (m.y + 0.9) - position[1];
-        const dz = m.z - position[2];
-        const d  = Math.hypot(dx, dy, dz);
-        if (d > reach) continue;
-        if ((dx*fwd[0] + dy*fwd[1] + dz*fwd[2]) / Math.max(d, 1e-4) < 0.35) continue;
-        killMob(m);
-        break;
-      }
-    }
-    if (swingT > SWING_DUR) swingT = -1;
-  }
-}
-
-/* ════════════════════════════════════════════════════════════
    6c · SKY PASS
    ════════════════════════════════════════════════════════════ */
 const viewProjMat    = mat4.create();
@@ -1954,19 +1570,11 @@ addEventListener('keydown', e => {
     case ']': blockSize = Math.min(16, blockSize + 1); updateModeLabel(); scheduleWorldBroadcast(); rebuildTreeInstances(true); break;
     case 'r': case 'R': edits.length = 0; scheduleWorldBroadcast(); break;
     case 'f': case 'F': flightMode = !flightMode; if (flightMode) velocityY = 0; updateFlyLabel(); break;
-    case '1': currentWeapon = WEAPON_M16;   updateWeaponLabel(); break;
-    case '2': currentWeapon = WEAPON_SWORD; updateWeaponLabel(); break;
-    case 'q': case 'Q': currentWeapon = (currentWeapon + 1) % 2; updateWeaponLabel(); break;
-    case 'e': case 'E': toggleCar(); break;
     case 'Escape': document.exitPointerLock?.(); break;
   }
 });
 function updateFlyLabel() {
   document.getElementById('fly').textContent = flightMode ? 'FLIGHT: ON  (F to toggle)' : '';
-}
-function updateWeaponLabel() {
-  document.getElementById('weapon').textContent =
-    `Weapon: ${WEAPON_NAMES[currentWeapon]}${drivingCar ? '   [DRIVING]' : ''}`;
 }
 canvas.addEventListener('touchstart', e => {
   if (lookTouchId === null && e.changedTouches.length) {
@@ -2032,7 +1640,6 @@ function handleKeyInput() {
   }
 }
 function applyGravity(dt) {
-  if (drivingCar) return;
   const floorY = cachedHeightAt(targetPosition[0], targetPosition[2]) + EYE_HEIGHT;
   if (flightMode) {
     if (targetPosition[1] < floorY) targetPosition[1] = floorY;
@@ -2052,96 +1659,22 @@ function applyTerrainEdit(dig) {
   if (edits.length > MAX_EDITS) edits.shift();
   scheduleWorldBroadcast();
   rebuildTreeInstances(true);
-  rebuildCarList(true);
 }
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('mousedown', e => {
-  if (document.pointerLockElement !== canvas) return;
-  if (e.button === 0)      fireWeapon();
-  else if (e.button === 2) applyTerrainEdit(!keysPressed['Shift']);
+  if (document.pointerLockElement === canvas) applyTerrainEdit(e.button === 2);
 });
-
-/* ── car enter / exit + driving ── */
-let drivingCar = null;
-function toggleCar() {
-  if (drivingCar) {
-    const car = drivingCar;
-    drivingCar = null;
-    const rx = Math.cos(car.yaw), rz = Math.sin(car.yaw);
-    targetPosition[0] = car.x + rx * 2.6;
-    targetPosition[2] = car.z + rz * 2.6;
-    targetPosition[1] = cachedHeightAt(targetPosition[0], targetPosition[2]) + EYE_HEIGHT;
-    velocityY = 0;
-    car.speed = 0;
-  } else {
-    if (flightMode) return;
-    let best = null, bestD = 5.0 * 5.0;
-    for (const c of cars) {
-      const dx = c.x - position[0], dz = c.z - position[2];
-      const d2 = dx*dx + dz*dz;
-      if (d2 < bestD) { bestD = d2; best = c; }
-    }
-    if (best) { drivingCar = best; best.speed = 0; }
-  }
-  updateWeaponLabel();
-}
-function updateCar(dt) {
-  const car = drivingCar;
-  if (!car) return;
-  let th = 0, st = 0;
-  if (keysPressed['w']) th += 1;
-  if (keysPressed['s']) th -= 1;
-  if (keysPressed['a']) st += 1;
-  if (keysPressed['d']) st -= 1;
-  th -= joyVec.y;
-  st -= joyVec.x;
-  th = Math.max(-1, Math.min(1, th));
-  st = Math.max(-1, Math.min(1, st));
-
-  const MAXF = 26, MAXR = 9, ACC = 13, BRK = 24;
-  if (th > 0.05)       car.speed += ACC * th * dt;
-  else if (th < -0.05) car.speed += ACC * th * 1.7 * dt;
-  else {
-    const f = 7 * dt;
-    if (Math.abs(car.speed) <= f) car.speed = 0;
-    else car.speed -= Math.sign(car.speed) * f;
-  }
-  if (keysPressed[' ']) {
-    const f = 30 * dt;
-    if (Math.abs(car.speed) <= f) car.speed = 0;
-    else car.speed -= Math.sign(car.speed) * f;
-  }
-  car.speed = Math.max(-MAXR, Math.min(MAXF, car.speed));
-
-  const spdFrac = Math.min(1, Math.abs(car.speed) / 8);
-  const turn = st * 2.0 * spdFrac * (car.speed < 0 ? -1 : 1);
-  car.yaw -= turn * dt;
-
-  const fx = Math.sin(car.yaw), fz = -Math.cos(car.yaw);
-  car.x += fx * car.speed * dt;
-  car.z += fz * car.speed * dt;
-  car.y  = cachedHeightAt(car.x, car.z);
-
-  targetPosition[0] = car.x;
-  targetPosition[1] = car.y + 1.15;
-  targetPosition[2] = car.z;
-  velocityY = 0; grounded = true;
-}
 
 const fpsElement    = document.getElementById('fps');
 const modeElement   = document.getElementById('mode');
 const biomeElement  = document.getElementById('biome');
 const netElement    = document.getElementById('net');
 const statusElement = document.getElementById('status');
-const coordsElement = document.getElementById('coords');
-const crosshairEl   = document.getElementById('crosshair');
-const hitmarkEl     = document.getElementById('hitmark');
 function updateModeLabel() {
   modeElement.textContent = `Terrain: ${MODE_NAMES[modeIndex]}   block = ${blockSize}u`;
 }
 updateModeLabel();
 updateFlyLabel();
-updateWeaponLabel();
 
 /* ════════════════════════════════════════════════════════════
    8 · NETWORKING
@@ -2294,8 +1827,7 @@ const worldPacket = () => JSON.stringify({
   edits: edits.map(e => e.slice()),
   blockSize, modeIndex,
   treeHeight: TREE_HEIGHT_MULT,
-  treeDensity: TREE_DENSITY_MULT,
-  carDensity: CAR_DENSITY
+  treeDensity: TREE_DENSITY_MULT
 });
 function sendWorldStateTo(peerID) {
   const ch = channels[peerID];
@@ -2323,11 +1855,6 @@ function applyWorldState(p) {
   if (typeof p.modeIndex === 'number') modeIndex = p.modeIndex;
   if (typeof p.treeHeight === 'number')  TREE_HEIGHT_MULT  = p.treeHeight;
   if (typeof p.treeDensity === 'number') TREE_DENSITY_MULT = p.treeDensity;
-  if (typeof p.carDensity === 'number') {
-    CAR_DENSITY = p.carDensity;
-    carStates.clear();
-    rebuildCarList(true);
-  }
   if (Array.isArray(p.edits)) {
     edits.length = 0;
     for (const e of p.edits)
@@ -2338,7 +1865,6 @@ function applyWorldState(p) {
   updateModeLabel();
   syncTerrainSliders();
   syncTreeSliders();
-  syncCarSlider();
   rebuildTreeInstances(true);
 }
 let lastMobBroadcast = 0;
@@ -2455,13 +1981,6 @@ function handleChannelMessage(peerID, raw) {
     case "player": receivePlayerState(p); break;
     case "world":  applyWorldState(p);    break;
     case "mobs":   if (!isMobHost) applyMobSync(p.list); break;
-    case "hit": {
-      if (isMobHost && typeof p.mobId === "number") {
-        const i = mobs.findIndex(m => m.id === p.mobId);
-        if (i >= 0) mobs.splice(i, 1);
-      }
-      break;
-    }
   }
 }
 async function pollSignals() {
@@ -2495,7 +2014,7 @@ addEventListener("beforeunload", () => {
 });
 
 /* ════════════════════════════════════════════════════════════
-   9 · SLIDERS  (networked)
+   9 · TERRAIN SLIDERS  +  TREE SLIDERS  (networked)
    ════════════════════════════════════════════════════════════ */
 const sliders = {
   u_k:      document.getElementById('u_k'),
@@ -2528,12 +2047,10 @@ function onSliderInput() {
   pushTerrainUniforms();
   scheduleWorldBroadcast();
   rebuildTreeInstances(true);
-  rebuildCarList(true);
 }
 for (const el of Object.values(sliders)) el.addEventListener('input', onSliderInput);
 syncTerrainSliders();
 
-/* ── tree sliders ── */
 const treeHSlider = document.getElementById('tree_h');
 const treeHLabel  = document.getElementById('tree_h_val');
 const treeDSlider = document.getElementById('tree_d');
@@ -2571,24 +2088,6 @@ rainforestBtn?.addEventListener('click', () => {
   rebuildTreeInstances(true);
   scheduleWorldBroadcast();
 });
-
-/* ── car density slider ── */
-const carDSlider = document.getElementById('car_d');
-const carDLabel  = document.getElementById('car_d_val');
-function syncCarSlider() {
-  if (!carDSlider) return;
-  carDSlider.value = CAR_DENSITY;
-  carDLabel.textContent = CAR_DENSITY.toFixed(2) + '×';
-}
-carDSlider?.addEventListener('input', () => {
-  CAR_DENSITY = parseFloat(carDSlider.value);
-  carDLabel.textContent = CAR_DENSITY.toFixed(2) + '×';
-  carStates.clear();
-  if (drivingCar) { drivingCar = null; }
-  rebuildCarList(true);
-  scheduleWorldBroadcast();
-});
-syncCarSlider();
 
 /* ════════════════════════════════════════════════════════════
    10 · AMBIENT MUSIC
@@ -2776,7 +2275,6 @@ function startOnce() {
   started = true;
   updateHeightmap(true);
   rebuildTreeInstances(true);
-  rebuildCarList(true);
   requestAnimationFrame(animate);
 }
 const image = new Image();
@@ -2821,17 +2319,12 @@ function blockLevelCount() {
 }
 const cameraPos = [0, 0];
 let frameCount = 0, startTime = performance.now(), lastTime = performance.now();
-let prevPX = 0, prevPZ = 0;
-
 function animate() {
   const now = performance.now();
   const dt = Math.min((now - lastTime) / 1000, .05);
   lastTime = now;
-
-  if (drivingCar) updateCar(dt);
-  else handleKeyInput();
+  handleKeyInput();
   applyGravity(dt);
-
   updateHeightmap();
   if (isMobHost) { updateMobs(dt); updateSpawning(dt); }
   else {
@@ -2850,30 +2343,16 @@ function animate() {
   cameraPos[0] = position[0];
   cameraPos[1] = position[2];
   position = vec3.lerp([], position, targetPosition, .1);
-
-  /* weapon bob from horizontal motion */
-  const moveDist = Math.hypot(position[0] - prevPX, position[2] - prevPZ);
-  prevPX = position[0]; prevPZ = position[2];
-  playerMoveAccum += moveDist;
-  bobStrength = Math.min(1, playerMoveAccum * 55);
-  playerMoveAccum *= 0.86;
-  bobPhase += moveDist * 26;
-
   mat4.lookAt(modelViewMatrix,
     [position[0], position[1], position[2]],
     [position[0] + Math.sin(mouseX),
      position[1] + Math.sin(mouseY),
      position[2] - Math.cos(mouseX)],
     [0, 1, 0]);
-
-  updateWeapon(dt);
   rebuildTreeInstances(false);
-  rebuildCarList(false);
-
   gl.clearColor(...currentSky, 1);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   drawSky();
-
   gl.useProgram(program);
   gl.bindVertexArray(null);
   uploadEdits(main);
@@ -2903,24 +2382,10 @@ function animate() {
   }
   drawTrees();
   drawMobs();
-
-  /* world props: cars */
-  const ck = buildCarGeometry(0);
-  if (ck) drawProps(ck, position);
-
   updateRemotePlayers();
   sendPlayerState();
   flushWorldBroadcast();
   hostMobTick(now);
-
-  /* first-person weapon — drawn last with a clean depth buffer */
-  gl.clear(gl.DEPTH_BUFFER_BIT);
-  const wk = buildWeaponGeometry(0);
-  if (wk) drawProps(wk, position);
-
-  crosshairEl.classList.toggle('on', !!(document.pointerLockElement === canvas));
-  hitmarkEl.classList.toggle('on', hitMarker > 0);
-
   frameCount++;
   if (now - startTime >= 1000) {
     fpsElement.textContent = `FPS: ${((frameCount / (now - startTime)) * 1000).toFixed(2)}`;
@@ -2931,10 +2396,7 @@ function animate() {
   let treeTotal = 0;
   for (let t = 0; t < TREE_TYPES; t++) treeTotal += treeTypeCount[t];
   biomeElement.textContent =
-    `Biome: ${currentBiomeName}   mobs: ${mobs.length} (flying: ${flyers})   trees: ${treeTotal}   cars: ${cars.length}`;
-  coordsElement.textContent =
-    `XYZ ${position[0].toFixed(1)} ${position[1].toFixed(1)} ${position[2].toFixed(1)}` +
-    (drivingCar ? `   SPD ${(drivingCar.speed).toFixed(1)} m/s` : '');
+    `Biome: ${currentBiomeName}   mobs: ${mobs.length} (flying: ${flyers})   trees: ${treeTotal}`;
   requestAnimationFrame(animate);
 }
 
@@ -3050,7 +2512,6 @@ function animate() {
   for (const ev of ['fullscreenchange', 'webkitfullscreenchange'])
     document.addEventListener(ev, () => { updateFsBtn(); setTimeout(resizeViewport, 120); });
   updateFsBtn();
-
   const joyBase = document.getElementById('joystick');
   const joyKnob = document.getElementById('stick');
   const JOY_MAX = 50, JOY_DEADZONE = .14;
@@ -3091,13 +2552,12 @@ function animate() {
   });
   for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture'])
     joyBase.addEventListener(ev, e => { if (e.pointerId === joyPointerId) joyReset(); });
-
   function bindHold(id, key) {
     const el = document.getElementById(id);
     if (!el) return;
     const down = e => { e.preventDefault(); keysPressed[key] = true;  el.classList.add('active'); };
     const up   = () => { keysPressed[key] = false; el.classList.remove('active'); };
-    el.addEventListener('pointerdown', down);
+    for (const ev of ['pointerdown']) el.addEventListener(ev, down);
     for (const ev of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture'])
       el.addEventListener(ev, up);
   }
@@ -3114,22 +2574,17 @@ function animate() {
   bindHold('btn-jump', ' ');
   bindHold('btn-down', 'Shift');
   bindTap('btn-mode',  () => { modeIndex = (modeIndex + 1) % 3; updateModeLabel(); scheduleWorldBroadcast(); rebuildTreeInstances(true); });
-  bindTap('btn-reset', () => { edits.length = 0; scheduleWorldBroadcast(); rebuildTreeInstances(true); rebuildCarList(true); });
+  bindTap('btn-reset', () => { edits.length = 0; scheduleWorldBroadcast(); rebuildTreeInstances(true); });
   bindTap('btn-raise', () => applyTerrainEdit(false));
   bindTap('btn-dig',   () => applyTerrainEdit(true));
-  bindTap('btn-fire',  () => fireWeapon());
-  bindTap('btn-weapon',() => { currentWeapon = (currentWeapon + 1) % 2; updateWeaponLabel(); });
-  bindTap('btn-car',   () => toggleCar());
-
   const flyBtn = document.getElementById('btn-fly');
   const updateFlyBtn = () => flyBtn.classList.toggle('on', flightMode);
   flyBtn.addEventListener('pointerdown', e => {
     e.preventDefault();
     flightMode = !flightMode;
-    if (flightMode) { velocityY = 0; drivingCar = null; }
+    if (flightMode) velocityY = 0;
     updateFlyLabel();
     updateFlyBtn();
-    updateWeaponLabel();
   });
   updateFlyBtn();
   const sprintBtn = document.getElementById('btn-sprint');
@@ -3140,7 +2595,6 @@ function animate() {
     updateSprintBtn();
   });
   updateSprintBtn();
-
   const controlsEl = document.getElementById('touch-controls');
   const touchBtn   = document.getElementById('touch-btn');
   function setTouchControls(on) {
@@ -3159,7 +2613,6 @@ function animate() {
   touchBtn.addEventListener('click', () => setTouchControls(!controlsEl.classList.contains('enabled')));
   setTouchControls(isTouchDevice);
 
-  /* trees + shadows toggles */
   const treesBtn = document.getElementById('trees-btn');
   function updateTreesBtn() {
     treesBtn.textContent = '🌲 Trees: ' + (treesEnabled ? 'ON' : 'OFF');
@@ -3186,6 +2639,887 @@ function animate() {
 
   const panel = document.getElementById('params');
   panel.querySelector('h3').addEventListener('click', () => panel.classList.toggle('collapsed'));
+})();
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════
+     EXTENSION · CAR · SURVIVAL · ENEMIES · STRUCTURES · RESPAWN
+     ══════════════════════════════════════════════════════════════ -->
+<script>
+(function () {
+'use strict';
+
+/* ══════════════════════════════════════════════════════════
+   0 · WIRING HELPERS
+   ══════════════════════════════════════════════════════════ */
+const $ = id => document.getElementById(id);
+
+/* ══════════════════════════════════════════════════════════
+   1 · SOUND EFFECTS (procedural, Web Audio)
+   ══════════════════════════════════════════════════════════ */
+const sfx = { master:null, ready:false };
+
+function ensureAudio() {
+  try {
+    if (!music.ctx) initAudio();
+    if (!music.ctx) return false;
+    if (music.ctx.state === 'suspended') music.ctx.resume();
+    if (!sfx.ready) {
+      sfx.master = music.ctx.createGain();
+      sfx.master.gain.value = 0.5;
+      sfx.master.connect(music.ctx.destination);
+      sfx.ready = true;
+    }
+    return true;
+  } catch (e) { return false; }
+}
+
+function playSfx(kind) {
+  if (!ensureAudio()) return;
+  const ctx = music.ctx, t = ctx.currentTime;
+  try {
+    /* ── GUNSHOT ── */
+    if (kind === 'gunshot') {
+      const n = Math.floor(ctx.sampleRate * 0.2);
+      const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/n, 3);
+      const src = ctx.createBufferSource(); src.buffer = buf;
+      const f = ctx.createBiquadFilter();
+      f.type='bandpass'; f.frequency.value=1100; f.Q.value=0.7;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.55, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+      src.connect(f); f.connect(g); g.connect(sfx.master);
+      src.start(t); src.stop(t + 0.22);
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(150, t);
+      o.frequency.exponentialRampToValueAtTime(45, t + 0.16);
+      const og = ctx.createGain();
+      og.gain.setValueAtTime(0.4, t);
+      og.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.connect(og); og.connect(sfx.master); o.start(t); o.stop(t + 0.2);
+      return;
+    }
+    /* ── ENEMY VOCALISATIONS ── */
+    if (kind === 'zombie' || kind === 'brute' || kind === 'skeleton') {
+      const base = kind === 'zombie' ? 95 : kind === 'brute' ? 52 : 320;
+      const o = ctx.createOscillator();
+      o.type = kind === 'skeleton' ? 'square' : 'sawtooth';
+      o.frequency.setValueAtTime(base, t);
+      o.frequency.exponentialRampToValueAtTime(base*0.5, t + 0.85);
+      const f = ctx.createBiquadFilter();
+      f.type='lowpass'; f.frequency.value = kind==='skeleton' ? 2600 : 1400;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(kind==='brute' ? 0.30 : 0.17, t + 0.1);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 1.05);
+      o.connect(f); f.connect(g); g.connect(sfx.master);
+      o.start(t); o.stop(t + 1.15);
+      if (kind === 'skeleton') {
+        /* dry rattle overlay */
+        const rn = Math.floor(ctx.sampleRate * 0.25);
+        const rb = ctx.createBuffer(1, rn, ctx.sampleRate);
+        const rd = rb.getChannelData(0);
+        for (let i = 0; i < rn; i++)
+          rd[i] = (Math.random()*2-1) * Math.pow(1 - i/rn, 6) * (i%500 < 40 ? 1 : 0.15);
+        const rs = ctx.createBufferSource(); rs.buffer = rb;
+        const rg = ctx.createGain(); rg.gain.value = 0.22;
+        const rf = ctx.createBiquadFilter(); rf.type='highpass'; rf.frequency.value = 1800;
+        rs.connect(rf); rf.connect(rg); rg.connect(sfx.master);
+        rs.start(t); rs.stop(t + 0.3);
+      }
+      return;
+    }
+    /* ── DRY HIT / CLICK ── */
+    if (kind === 'hit') {
+      const o = ctx.createOscillator(); o.type='triangle';
+      o.frequency.setValueAtTime(700, t);
+      o.frequency.exponentialRampToValueAtTime(180, t + 0.16);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.24, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.connect(g); g.connect(sfx.master); o.start(t); o.stop(t + 0.2);
+      return;
+    }
+    /* ── PLAYER HURT ── */
+    if (kind === 'hurt') {
+      const o = ctx.createOscillator(); o.type='square';
+      o.frequency.setValueAtTime(210, t);
+      o.frequency.exponentialRampToValueAtTime(70, t + 0.3);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.22, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      o.connect(g); g.connect(sfx.master); o.start(t); o.stop(t + 0.4);
+      return;
+    }
+    /* ── RESOURCE GATHER ── */
+    if (kind === 'gather') {
+      const o = ctx.createOscillator(); o.type='sine';
+      o.frequency.setValueAtTime(880, t);
+      o.frequency.exponentialRampToValueAtTime(1360, t + 0.12);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.17, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+      o.connect(g); g.connect(sfx.master); o.start(t); o.stop(t + 0.3);
+      return;
+    }
+  } catch (e) {}
+}
+
+/* ── Engine hum ── */
+const engine = { osc:null, gain:null, lfo:null };
+function startEngine() {
+  if (!ensureAudio()) return;
+  if (engine.osc) return;
+  const ctx = music.ctx, t = ctx.currentTime;
+  try {
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth'; o.frequency.value = 65;
+    const g = ctx.createGain(); g.gain.value = 0;
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 7;
+    const lg = ctx.createGain(); lg.gain.value = 5;
+    lfo.connect(lg); lg.connect(o.frequency);
+    const f = ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value = 430;
+    o.connect(f); f.connect(g); g.connect(sfx.master);
+    g.gain.linearRampToValueAtTime(0.10, t + 0.4);
+    o.start(t); lfo.start(t);
+    engine.osc = o; engine.gain = g; engine.lfo = lfo;
+  } catch (e) {}
+}
+function stopEngine() {
+  if (!engine.osc) return;
+  const ctx = music.ctx, t = ctx.currentTime;
+  try {
+    engine.gain.gain.cancelScheduledValues(t);
+    engine.gain.gain.setValueAtTime(engine.gain.gain.value, t);
+    engine.gain.gain.linearRampToValueAtTime(0, t + 0.25);
+    const o = engine.osc, l = engine.lfo;
+    setTimeout(() => { try { o.stop(); l.stop(); } catch(e){} }, 400);
+  } catch (e) {}
+  engine.osc = null; engine.gain = null; engine.lfo = null;
+}
+
+/* ══════════════════════════════════════════════════════════
+   2 · CAR
+   ══════════════════════════════════════════════════════════ */
+const car = {
+  x: 10, y: 0, z: 10, yaw: 0.6, speed: 0,
+  netX: 10, netY: 0, netZ: 10, netYaw: 0.6,
+  driverId: null,
+  driving: false
+};
+car.y = cachedHeightAt(car.x, car.z) + 0.5;
+car.netY = car.y;
+
+function enterCar() {
+  if (car.driverId && car.driverId !== ID) return;   // someone else drives
+  car.driving  = true;
+  car.driverId = ID;
+  car.speed    = 0;
+  flightMode   = false;
+  updateFlyLabel();
+  startEngine();
+  scheduleWorldBroadcast();
+  sendCarState(true);
+  updateCarBtn();
+}
+function exitCar() {
+  if (!car.driving) return;
+  car.driving  = false;
+  car.driverId = null;
+  car.speed    = 0;
+  stopEngine();
+  /* place the player beside the car */
+  const rx = Math.cos(car.yaw), rz = Math.sin(car.yaw);
+  targetPosition[0] = car.x + rx * 3.2;
+  targetPosition[2] = car.z + rz * 3.2;
+  targetPosition[1] = cachedHeightAt(targetPosition[0], targetPosition[2]) + EYE_HEIGHT;
+  velocityY = 0; grounded = true;
+  scheduleWorldBroadcast();
+  sendCarState(true);
+  updateCarBtn();
+}
+function tryToggleCar() {
+  if (car.driving) { exitCar(); return; }
+  if (car.driverId && car.driverId !== ID) return;
+  const dx = targetPosition[0] - car.x, dz = targetPosition[2] - car.z;
+  if (dx*dx + dz*dz < 36) { enterCar(); return; }
+  /* "call vehicle" — teleport the car right in front of the player */
+  const fx = Math.sin(mouseX), fz = -Math.cos(mouseX);
+  car.x = targetPosition[0] + fx * 4;
+  car.z = targetPosition[2] + fz * 4;
+  car.yaw = mouseX;
+  car.y = cachedHeightAt(car.x, car.z) + 0.5;
+  car.netX = car.x; car.netY = car.y; car.netZ = car.z; car.netYaw = car.yaw;
+  enterCar();
+}
+
+function updateCar(dt) {
+  if (car.driving) {
+    let thr = 0, str = 0;
+    if (keysPressed['w']) thr += 1;
+    if (keysPressed['s']) thr -= 1;
+    if (keysPressed['a']) str -= 1;
+    if (keysPressed['d']) str += 1;
+    thr += -joyVec.y;
+    str +=  joyVec.x;
+    thr = Math.max(-1, Math.min(1, thr));
+    str = Math.max(-1, Math.min(1, str));
+
+    const MAXF = 26, MAXR = -9, ACC = 16, BRK = 28, FRIC = 8;
+    if (thr > 0.05)       car.speed += ACC * thr * dt;
+    else if (thr < -0.05) car.speed += BRK * thr * dt;
+    else {
+      const s = Math.sign(car.speed);
+      car.speed -= s * FRIC * dt;
+      if (Math.sign(car.speed) !== s) car.speed = 0;
+    }
+    car.speed = Math.max(MAXR, Math.min(MAXF, car.speed));
+
+    const sf = Math.min(1, Math.abs(car.speed) / 5);
+    car.yaw += str * 1.9 * sf * dt * (car.speed < -0.5 ? -1 : 1);
+
+    const fx = Math.sin(car.yaw), fz = -Math.cos(car.yaw);
+    car.x += fx * car.speed * dt;
+    car.z += fz * car.speed * dt;
+
+    const gy = cachedHeightAt(car.x, car.z) + 0.5;
+    car.y += (gy - car.y) * Math.min(1, dt * 10);
+
+    /* ---- third-person chase camera (you SEE the car ahead of you) ---- */
+    const back = 9.0, up = 4.0;
+    targetPosition[0] = car.x - fx * back;
+    targetPosition[1] = car.y + up;
+    targetPosition[2] = car.z - fz * back;
+    mouseX = car.yaw;
+    mouseY = -0.16;
+
+    /* snap the camera quickly so the car stays centred while driving */
+    const k = Math.min(1, dt * 14);
+    position[0] += (targetPosition[0] - position[0]) * k;
+    position[1] += (targetPosition[1] - position[1]) * k;
+    position[2] += (targetPosition[2] - position[2]) * k;
+
+    velocityY = 0; grounded = true;
+
+    if (engine.osc) engine.osc.frequency.value = 60 + Math.abs(car.speed) * 3.2;
+
+  } else if (car.driverId && car.driverId !== ID) {
+    /* remote car — interpolate toward host state */
+    car.x += (car.netX - car.x) * 0.28;
+    car.y += (car.netY - car.y) * 0.28;
+    car.z += (car.netZ - car.z) * 0.28;
+    let d = car.netYaw - car.yaw;
+    while (d >  Math.PI) d -= Math.PI*2;
+    while (d < -Math.PI) d += Math.PI*2;
+    car.yaw += d * 0.28;
+  } else {
+    const gy = cachedHeightAt(car.x, car.z) + 0.5;
+    car.y += (gy - car.y) * Math.min(1, dt * 6);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   3 · SURVIVAL MODE — player stats + enemies
+   ══════════════════════════════════════════════════════════ */
+const survival = {
+  on: false,
+  hp: 100, maxHp: 100,
+  ammo: 6, maxAmmo: 6, recharge: 1.4,
+  wood: 0, stone: 0, food: 0,
+  hitCd: 0
+};
+
+const enemies = [];
+const MAX_ENEMIES = 14;
+const ENEMY_DEF = {
+  zombie:   { hp:34, speed:2.1,  radius:0.50, color:[0.34,0.62,0.36], dmg:8,  snd:'zombie'   },
+  skeleton: { hp:22, speed:3.0,  radius:0.45, color:[0.90,0.90,0.84], dmg:6,  snd:'skeleton' },
+  brute:    { hp:95, speed:1.45, radius:0.85, color:[0.56,0.22,0.22], dmg:18, snd:'brute'    }
+};
+const ENEMY_KEYS = ['zombie','zombie','zombie','skeleton','skeleton','brute'];
+
+let enemySpawnTimer = 0;
+
+function spawnEnemy() {
+  const type = ENEMY_KEYS[(Math.random() * ENEMY_KEYS.length) | 0];
+  const a = Math.random() * TAU, r = 32 + Math.random() * 28;
+  const x = targetPosition[0] + Math.cos(a) * r;
+  const z = targetPosition[2] + Math.sin(a) * r;
+  const y = cachedHeightAt(x, z);
+  enemies.push({
+    type, x, y, z, yaw: 0, walkPhase: Math.random() * 6.28,
+    vx: 0, vz: 0, hp: ENEMY_DEF[type].hp,
+    netX: x, netY: y, netZ: z, netYaw: 0,
+    soundTimer: 2 + Math.random() * 3
+  });
+  playSfx(ENEMY_DEF[type].snd);
+}
+
+function updateSurvival(dt) {
+  if (survival.hitCd > 0) survival.hitCd -= dt;
+
+  if (!survival.on) {
+    if (enemies.length) enemies.length = 0;
+    return;
+  }
+
+  /* ammo recharge timer */
+  if (survival.ammo < survival.maxAmmo) {
+    survival.recharge -= dt;
+    if (survival.recharge <= 0) {
+      survival.ammo++;
+      survival.recharge = 1.4;
+    }
+  } else survival.recharge = 1.4;
+
+  if (isMobHost) {
+    enemySpawnTimer -= dt;
+    if (enemySpawnTimer <= 0 && enemies.length < MAX_ENEMIES) {
+      enemySpawnTimer = 1.5 + Math.random() * 2.0;
+      spawnEnemy();
+    }
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      const def = ENEMY_DEF[e.type];
+      const dx = targetPosition[0] - e.x, dz = targetPosition[2] - e.z;
+      let d = Math.hypot(dx, dz);
+      if (d > 140) { enemies.splice(i, 1); continue; }
+      if (d < 1e-3) d = 1e-3;
+      const ux = dx/d, uz = dz/d;
+      const sp = d < 45 ? def.speed : def.speed * 0.35;
+      e.vx += (ux * sp - e.vx) * Math.min(1, dt * 4);
+      e.vz += (uz * sp - e.vz) * Math.min(1, dt * 4);
+      e.x += e.vx * dt; e.z += e.vz * dt;
+      const gy = cachedHeightAt(e.x, e.z);
+      e.y += (gy - e.y) * Math.min(1, dt * 8);
+      if (Math.abs(e.vx) + Math.abs(e.vz) > 0.15) {
+        e.yaw = Math.atan2(e.vx, -e.vz);
+        e.walkPhase += dt * 6;
+      }
+      /* contact damage — not while driving */
+      if (d < 1.3 + def.radius && survival.hitCd <= 0 && !car.driving) {
+        survival.hp -= def.dmg;
+        survival.hitCd = 0.9;
+        playSfx('hurt');
+        if (survival.hp <= 0) respawnPlayer();
+      }
+      /* ambient enemy calls */
+      e.soundTimer -= dt;
+      if (e.soundTimer <= 0) {
+        e.soundTimer = 3.5 + Math.random() * 5;
+        if (d < 45) playSfx(def.snd);
+      }
+    }
+  } else {
+    /* remote mirror — interpolate */
+    for (const e of enemies) {
+      e.x += (e.netX - e.x) * 0.28;
+      e.y += (e.netY - e.y) * 0.28;
+      e.z += (e.netZ - e.z) * 0.28;
+      let dy = e.netYaw - e.yaw;
+      while (dy >  Math.PI) dy -= Math.PI*2;
+      while (dy < -Math.PI) dy += Math.PI*2;
+      e.yaw += dy * 0.28;
+      e.walkPhase += dt * 5;
+    }
+  }
+
+  /* slow health regen */
+  if (survival.hp < survival.maxHp) {
+    survival.hp = Math.min(survival.maxHp, survival.hp + dt * 2);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   4 · SHOOTING  (the "gun")
+   ══════════════════════════════════════════════════════════ */
+function shoot() {
+  if (!survival.on) return;
+  ensureAudio();
+  if (survival.ammo <= 0) { playSfx('hit'); return; }
+  survival.ammo--;
+  if (survival.ammo === survival.maxAmmo - 1) survival.recharge = 1.4;
+  playSfx('gunshot');
+
+  const cp = Math.cos(mouseY);
+  const dir = [Math.sin(mouseX) * cp, Math.sin(mouseY), -Math.cos(mouseX) * cp];
+  const ox = position[0], oy = position[1], oz = position[2];
+
+  let best = null, bestT = 80;
+  for (const e of enemies) {
+    const ex = e.x - ox, ey = (e.y + 1.1) - oy, ez = e.z - oz;
+    const t = ex * dir[0] + ey * dir[1] + ez * dir[2];
+    if (t < 0.5 || t > bestT) continue;
+    const px = ox + dir[0] * t, py = oy + dir[1] * t, pz = oz + dir[2] * t;
+    const dd = Math.hypot(e.x - px, (e.y + 1.1) - py, e.z - pz);
+    if (dd < 1.2) { best = e; bestT = t; }
+  }
+  if (best) {
+    best.hp -= 18 + Math.random() * 14;
+    if (best.hp <= 0) {
+      const idx = enemies.indexOf(best);
+      if (idx >= 0) enemies.splice(idx, 1);
+      survival.food += 1;
+      if (Math.random() < 0.35) survival.stone += 1;
+      if (Math.random() < 0.25) survival.wood  += 1;
+    }
+  }
+  updateSurvivalHud();
+}
+
+/* ══════════════════════════════════════════════════════════
+   5 · RESPAWN
+   ══════════════════════════════════════════════════════════ */
+function respawnPlayer() {
+  if (car.driving) exitCar();
+  const gy = cachedHeightAt(0, 0) + EYE_HEIGHT;
+  targetPosition = [0, gy, 0];
+  position       = [0, gy, 0];
+  velocityY = 0; grounded = true;
+  survival.hp = survival.maxHp;
+  survival.hitCd = 1.5;
+  if (survival.on) { enemies.length = 0; enemySpawnTimer = 2; }
+  playSfx('hit');
+  updateSurvivalHud();
+}
+
+/* ══════════════════════════════════════════════════════════
+   6 · STRUCTURES  (procedural, gatherable)
+   ══════════════════════════════════════════════════════════ */
+const STRUCT_DEFS = [
+  { name:'hut',      res:'wood',  amt:3 },
+  { name:'tower',    res:'stone', amt:4 },
+  { name:'crates',   res:'food',  amt:3 },
+  { name:'campfire', res:'food',  amt:2 },
+  { name:'ruins',    res:'stone', amt:3 },
+];
+const STRUCT_CELL   = 48;
+const STRUCT_RADIUS = 230;
+const structures    = [];
+const gatheredAt    = new Map();
+let lastStructX = 1e9, lastStructZ = 1e9;
+
+function rebuildStructures(force) {
+  const cx = targetPosition[0], cz = targetPosition[2];
+  if (!force && Math.hypot(cx - lastStructX, cz - lastStructZ) < 24) return;
+  lastStructX = cx; lastStructZ = cz;
+  structures.length = 0;
+  const R   = Math.ceil(STRUCT_RADIUS / STRUCT_CELL);
+  const cix = Math.round(cx / STRUCT_CELL), ciz = Math.round(cz / STRUCT_CELL);
+  const seed = (Math.floor(TERRAIN.seed * 1000) | 0) ^ 0x9e37;
+  for (let dz = -R; dz <= R; dz++) {
+    for (let dx = -R; dx <= R; dx++) {
+      const gx = cix + dx, gz = ciz + dz;
+      if (hash2(gx, gz, seed) > 0.30) continue;
+      const r1 = hash2(gx + 101, gz - 203, seed);
+      const r2 = hash2(gx - 307, gz + 509, seed);
+      const r3 = hash2(gx + 701, gz + 907, seed);
+      const r4 = hash2(gx - 1103, gz - 1301, seed);
+      const px = (gx + r1) * STRUCT_CELL;
+      const pz = (gz + r2) * STRUCT_CELL;
+      const ddx = px - cx, ddz = pz - cz;
+      if (ddx*ddx + ddz*ddz > STRUCT_RADIUS*STRUCT_RADIUS) continue;
+      const y = cachedHeightAt(px, pz);
+      if (y > 30) continue;
+      const type  = Math.floor(r3 * STRUCT_DEFS.length) % STRUCT_DEFS.length;
+      const scale = 0.9 + r4 * 0.6;
+      const yaw   = hash2(gx + 211, gz - 223, seed) * TAU;
+      structures.push({ x: px, y: y - 0.05, z: pz, yaw, type, scale, gx, gz });
+      if (structures.length > 90) return;
+    }
+  }
+}
+
+function updateStructures(dt) {
+  const now = performance.now();
+  for (const s of structures) {
+    const dx = targetPosition[0] - s.x, dz = targetPosition[2] - s.z;
+    if (dx*dx + dz*dz > 9) continue;
+    const key = s.gx + '_' + s.gz;
+    if (now - (gatheredAt.get(key) || 0) < 9000) continue;
+    gatheredAt.set(key, now);
+    const def = STRUCT_DEFS[s.type];
+    survival[def.res] += def.amt;
+    playSfx('gather');
+    updateSurvivalHud();
+    break;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   7 · RENDER GEOMETRY  (car / enemies / structures)
+   ══════════════════════════════════════════════════════════ */
+const EXTRA_BOX_CAP = 1600;
+const extraData = new Float32Array(EXTRA_BOX_CAP * VERTS_PER_BOX * FLOATS_PER_VERT);
+const extraVBO  = gl.createBuffer();
+const extraVAO  = gl.createVertexArray();
+gl.bindVertexArray(extraVAO);
+gl.bindBuffer(gl.ARRAY_BUFFER, extraVBO);
+gl.bufferData(gl.ARRAY_BUFFER, extraData.byteLength, gl.DYNAMIC_DRAW);
+const EXTRA_STRIDE = FLOATS_PER_VERT * 4;
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, EXTRA_STRIDE, 0);
+gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, EXTRA_STRIDE, 12);
+gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, EXTRA_STRIDE, 24);
+gl.bindVertexArray(null);
+
+function appendCar(out, k, c) {
+  const co = Math.cos(c.yaw), si = Math.sin(c.yaw);
+  const B = (ox,oy,oz,hx,hy,hz,col) =>
+    pushRotBox(out, k, c.x, c.y, c.z, co, si, ox,oy,oz, hx,hy,hz, col[0],col[1],col[2]);
+  const body  = [0.85, 0.16, 0.13];
+  const cabin = [0.92, 0.60, 0.16];
+  const wheel = [0.09, 0.09, 0.10];
+  const glass = [0.55, 0.78, 0.92];
+  const lamp  = [1.00, 0.95, 0.55];
+  B( 0,     0.00,  0.00, 1.00, 0.32, 2.00, body);
+  B( 0,     0.46,  0.15, 0.82, 0.28, 1.05, cabin);
+  B( 0,     0.46, -0.52, 0.78, 0.26, 0.06, glass);
+  B( 0,     0.46,  0.78, 0.78, 0.26, 0.06, glass);
+  B(-0.62,  0.06, -1.96, 0.16, 0.10, 0.06, lamp);
+  B( 0.62,  0.06, -1.96, 0.16, 0.10, 0.06, lamp);
+  for (const [wx, wz] of [[-1.02,-1.25],[1.02,-1.25],[-1.02,1.25],[1.02,1.25]]) {
+    B(wx, -0.28, wz, 0.16, 0.22, 0.36, wheel);
+  }
+  return k;
+}
+
+function appendEnemy(out, k, e) {
+  const cos = Math.cos(e.yaw), sin = Math.sin(e.yaw);
+  const swing = Math.sin(e.walkPhase) * 0.25;
+  const c = ENEMY_DEF[e.type].color;
+  const dark = [c[0]*0.55, c[1]*0.55, c[2]*0.55];
+  const B = (ox,oy,oz,hx,hy,hz,col) =>
+    pushRotBox(out, k, e.x, e.y, e.z, cos, sin, ox,oy,oz, hx,hy,hz, col[0],col[1],col[2]);
+  B(-0.15, 0.34,  swing, 0.13, 0.34, 0.13, dark);
+  B( 0.15, 0.34, -swing, 0.13, 0.34, 0.13, dark);
+  B( 0.00, 1.10,  0.00, 0.30, 0.44, 0.17, c);
+  B(-0.38, 1.25, -0.30, 0.10, 0.10, 0.38, c);
+  B( 0.38, 1.25, -0.30, 0.10, 0.10, 0.38, c);
+  B( 0.00, 1.75,  0.00, 0.26, 0.26, 0.26, c);
+  /* glowing eyes */
+  B(-0.08, 1.80, -0.24, 0.035, 0.035, 0.035, [1.0, 0.15, 0.10]);
+  B( 0.08, 1.80, -0.24, 0.035, 0.035, 0.035, [1.0, 0.15, 0.10]);
+  return k;
+}
+
+function appendStructure(out, k, s) {
+  const c = Math.cos(s.yaw), sn = Math.sin(s.yaw), sc = s.scale;
+  const B = (ox,oy,oz,hx,hy,hz,col) =>
+    pushRotBox(out, k, s.x, s.y, s.z, c, sn,
+               ox*sc, oy*sc, oz*sc, hx*sc, hy*sc, hz*sc,
+               col[0], col[1], col[2]);
+  const wood  = [0.55, 0.35, 0.18];
+  const woodD = [0.35, 0.22, 0.10];
+  const stone = [0.55, 0.55, 0.58];
+  const stoneD= [0.36, 0.36, 0.39];
+  const roof  = [0.62, 0.24, 0.14];
+  const fire  = [1.00, 0.60, 0.15];
+  const flame = [1.00, 0.88, 0.35];
+  const crate = [0.66, 0.44, 0.20];
+
+  const t = s.type;
+  if (t === 0) {                     /* ── wooden hut ── */
+    B(0, 0.05, 0, 0.62, 0.05, 0.62, woodD);
+    B(-0.55, 0.32,  0.00, 0.06, 0.30, 0.60, wood);
+    B( 0.55, 0.32,  0.00, 0.06, 0.30, 0.60, wood);
+    B( 0.00, 0.32, -0.55, 0.60, 0.30, 0.06, wood);
+    B(-0.30, 0.32,  0.55, 0.24, 0.30, 0.06, wood);
+    B( 0.30, 0.32,  0.55, 0.24, 0.30, 0.06, wood);
+    B(0, 0.62, 0, 0.65, 0.05, 0.65, roof);
+    B(0, 0.72, 0, 0.55, 0.06, 0.55, roof);
+    B(0, 0.82, 0, 0.40, 0.06, 0.40, roof);
+  } else if (t === 1) {              /* ── stone tower ── */
+    for (let i = 0; i < 8; i++) {
+      const w = 0.48 - i * 0.025;
+      B(0, 0.09 + i*0.11, 0, w, 0.06, w, i % 2 ? stone : stoneD);
+    }
+    B(0, 0.98, 0, 0.55, 0.06, 0.55, stone);
+    for (let i = 0; i < 4; i++) {
+      const a = i / 4 * TAU + 0.4;
+      B(Math.cos(a)*0.42, 1.10, Math.sin(a)*0.42, 0.11, 0.11, 0.11, stone);
+    }
+  } else if (t === 2) {              /* ── crate pile ── */
+    const r = mulberry32((s.gx * 73856093) ^ (s.gz * 19349663));
+    for (let i = 0; i < 8; i++) {
+      const x = (r() - 0.5) * 0.7, z = (r() - 0.5) * 0.7;
+      const y = 0.12 + Math.floor(i / 3) * 0.22;
+      B(x, y, z, 0.16, 0.11, 0.16, crate);
+    }
+  } else if (t === 3) {              /* ── campfire ── */
+    B(0, 0.03, 0, 0.42, 0.03, 0.42, [0.28, 0.20, 0.12]);
+    for (let i = 0; i < 5; i++) {
+      const a = i / 5 * TAU;
+      B(Math.cos(a)*0.13, 0.08, Math.sin(a)*0.13, 0.07, 0.06, 0.07, fire);
+    }
+    B(0, 0.18, 0, 0.09, 0.15, 0.09, flame);
+  } else {                           /* ── ruins ── */
+    const r = mulberry32((s.gx * 83492791) ^ (s.gz * 29874321));
+    for (let i = 0; i < 9; i++) {
+      const a  = i / 9 * TAU + r() * 0.6;
+      const rr = 0.35 + r() * 0.25;
+      const hh = 0.15 + r() * 0.42;
+      B(Math.cos(a)*rr, hh, Math.sin(a)*rr, 0.11, hh, 0.11, i % 2 ? stone : stoneD);
+    }
+    B(0.55, 0.09, 0.15, 0.32, 0.09, 0.09, stone);
+  }
+  return k;
+}
+
+function drawExtras() {
+  let k = 0;
+  const cap = EXTRA_BOX_CAP * VERTS_PER_BOX * FLOATS_PER_VERT;
+  const fits = boxes => k + boxes * VERTS_PER_BOX * FLOATS_PER_VERT <= cap;
+
+  if (fits(7))                              k = appendCar(extraData, k, car);
+  for (const e of enemies) if (fits(8))     k = appendEnemy(extraData, k, e);
+  for (const s of structures) if (fits(12)) k = appendStructure(extraData, k, s);
+
+  if (!k) return;
+  gl.useProgram(mobProgram);
+  pushLighting(mobProgram, mobU);
+  gl.bindVertexArray(extraVAO);
+  gl.bindBuffer(gl.ARRAY_BUFFER, extraVBO);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, extraData, 0, k);
+  gl.uniformMatrix4fv(mobU.u_projectionMatrix, false, projectionMatrix);
+  gl.uniformMatrix4fv(mobU.u_modelViewMatrix,  false, modelViewMatrix);
+  gl.uniform3f(mobU.u_cameraPosition, ...position);
+  gl.uniform1f(mobU.u_fogDensity, FOG_DENSITY);
+  gl.disable(gl.CULL_FACE);
+  gl.drawArrays(gl.TRIANGLES, 0, k / FLOATS_PER_VERT);
+  gl.enable(gl.CULL_FACE);
+  gl.bindVertexArray(null);
+  gl.useProgram(program);
+}
+
+/* ══════════════════════════════════════════════════════════
+   8 · NETWORK — car + enemy sync
+   ══════════════════════════════════════════════════════════ */
+function sendCarState(force) {
+  const now = performance.now();
+  if (!force && now - sendCarState._t < 60) return;
+  sendCarState._t = now;
+  const pkt = JSON.stringify({
+    type: 'car',
+    driver: car.driverId || '',
+    x: +car.x.toFixed(2), y: +car.y.toFixed(2), z: +car.z.toFixed(2),
+    yaw: +car.yaw.toFixed(3)
+  });
+  for (const pid in channels) {
+    const ch = channels[pid];
+    if (ch && ch.readyState === 'open') try { ch.send(pkt); } catch (e) {}
+  }
+}
+sendCarState._t = 0;
+
+function applyCarState(p) {
+  car.driverId = p.driver || null;
+  car.netX = p.x; car.netY = p.y; car.netZ = p.z; car.netYaw = p.yaw;
+  if (!car.driving && !car.driverId) {
+    /* nobody driving: snap to authoritative position */
+    car.x += (car.netX - car.x) * 0.4;
+    car.y += (car.netY - car.y) * 0.4;
+    car.z += (car.netZ - car.z) * 0.4;
+    let d = car.netYaw - car.yaw;
+    while (d >  Math.PI) d -= Math.PI*2;
+    while (d < -Math.PI) d += Math.PI*2;
+    car.yaw += d * 0.4;
+  }
+}
+
+let lastEnemySend = 0;
+function sendEnemyState() {
+  if (!isMobHost || !survival.on) return;
+  const now = performance.now();
+  if (now - lastEnemySend < 100) return;
+  lastEnemySend = now;
+  if (!Object.keys(channels).length) return;
+  const list = enemies.map(e => ({
+    t: e.type,
+    x: +e.x.toFixed(2), y: +e.y.toFixed(2), z: +e.z.toFixed(2),
+    yaw: +e.yaw.toFixed(2), wp: +e.walkPhase.toFixed(2)
+  }));
+  const pkt = JSON.stringify({ type:'enemies', list });
+  for (const pid in channels) {
+    const ch = channels[pid];
+    if (ch && ch.readyState === 'open') try { ch.send(pkt); } catch (e) {}
+  }
+}
+
+function applyEnemyState(list) {
+  if (isMobHost || !survival.on) return;
+  while (enemies.length > list.length) enemies.pop();
+  for (let i = 0; i < list.length; i++) {
+    const inc = list[i];
+    let e = enemies[i];
+    if (!e) {
+      e = { vx:0, vz:0, hp:100, soundTimer:99, x:inc.x, y:inc.y, z:inc.z, yaw:inc.yaw };
+      enemies[i] = e;
+    }
+    e.type = inc.t;
+    e.netX = inc.x; e.netY = inc.y; e.netZ = inc.z;
+    e.netYaw = inc.yaw; e.walkPhase = inc.wp;
+  }
+}
+
+/* hook into the original channel-message switch */
+const _handleChannelMessage = handleChannelMessage;
+handleChannelMessage = function (peerID, raw) {
+  let p = null;
+  try { p = JSON.parse(raw); } catch (e) {}
+  if (p && typeof p === 'object') {
+    if (p.type === 'car')     { applyCarState(p); return; }
+    if (p.type === 'enemies') { applyEnemyState(p.list); return; }
+  }
+  _handleChannelMessage(peerID, raw);
+};
+
+/* ══════════════════════════════════════════════════════════
+   9 · HUD + BUTTONS
+   ══════════════════════════════════════════════════════════ */
+const survivalHud = $('survival-hud');
+const hpBar       = $('hp-bar');
+const ammoText    = $('ammo-text');
+const resText     = $('res-text');
+const carPrompt   = $('car-prompt');
+const survivalBtn = $('survival-btn');
+const carBtn      = $('car-btn');
+
+function updateSurvivalHud() {
+  hpBar.style.width = Math.max(0, survival.hp / survival.maxHp * 100).toFixed(0) + '%';
+  ammoText.textContent = `AMMO ${survival.ammo}/${survival.maxAmmo}`;
+  resText.textContent  = `🪵 ${survival.wood}  🪨 ${survival.stone}  🍖 ${survival.food}`;
+  survivalHud.classList.toggle('on', survival.on);
+}
+function updateSurvivalBtn() {
+  survivalBtn.textContent = '💀 Survival Mode: ' + (survival.on ? 'ON' : 'OFF');
+  survivalBtn.classList.toggle('on', survival.on);
+}
+function updateCarBtn() {
+  carBtn.textContent = car.driving ? '🚗 Exit Car  (E)' : '🚗 Enter Car  (E)';
+  carBtn.classList.toggle('on', car.driving);
+}
+
+survivalBtn.addEventListener('click', () => {
+  survival.on = !survival.on;
+  if (!survival.on) enemies.length = 0;
+  else { enemySpawnTimer = 1.0; ensureAudio(); }
+  updateSurvivalBtn();
+  updateSurvivalHud();
+});
+carBtn.addEventListener('click', () => { tryToggleCar(); });
+
+$('respawn-btn').addEventListener('click', () => { respawnPlayer(); });
+
+/* keyboard shortcuts */
+addEventListener('keydown', e => {
+  if (e.key === 'e' || e.key === 'E') { tryToggleCar(); }
+  if (e.key === 'g' || e.key === 'G') { /* manual gather trigger handled automatically */ }
+  if (e.key === 'k' || e.key === 'K') { shoot(); }
+});
+
+/* shooting via mouse — capture-phase on document so the terrain-edit
+   listener on the canvas never sees it while survival is active */
+document.addEventListener('mousedown', e => {
+  if (e.target !== canvas) return;
+  if (!survival.on || e.button !== 0) return;
+  e.stopPropagation();
+  e.preventDefault();
+  shoot();
+}, true);
+
+/* touch: fire button */
+$('btn-shoot')?.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  shoot();
+});
+$('btn-car')?.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  tryToggleCar();
+});
+
+/* ══════════════════════════════════════════════════════════
+   10 · FUNCTION HOOKS  (wrap existing game functions)
+   ══════════════════════════════════════════════════════════ */
+
+/* keyboard movement is disabled while driving */
+const _handleKeyInput = handleKeyInput;
+handleKeyInput = function () {
+  if (car.driving) return;
+  _handleKeyInput();
+};
+
+/* gravity is disabled while driving */
+const _applyGravity = applyGravity;
+applyGravity = function (dt) {
+  if (car.driving) return;
+  _applyGravity(dt);
+};
+
+/* draw extra voxel objects after the regular mob pass */
+const _drawMobs = drawMobs;
+drawMobs = function () {
+  _drawMobs();
+  drawExtras();
+};
+
+/* main loop wrapper */
+let _lastExtFrame = performance.now();
+const _animate = animate;
+animate = function () {
+  const now = performance.now();
+  const dt = Math.min((now - _lastExtFrame) / 1000, 0.05);
+  _lastExtFrame = now;
+
+  updateCar(dt);
+  updateSurvival(dt);
+  rebuildStructures(false);
+  updateStructures(dt);
+
+  sendCarState(false);
+  sendEnemyState();
+
+  /* HUD refresh (cheap) */
+  if ((_animate._c = ((_animate._c || 0) + 1) % 6) === 0) {
+    updateSurvivalHud();
+    if (car.driving) { carPrompt.classList.remove('on'); }
+    else {
+      const dx = targetPosition[0] - car.x, dz = targetPosition[2] - car.z;
+      const near = dx*dx + dz*dz < 36 && (!car.driverId || car.driverId === ID);
+      carPrompt.classList.toggle('on', near);
+    }
+    updateCarBtn();
+  }
+
+  _animate();
+};
+
+/* initial UI state */
+updateSurvivalHud();
+updateSurvivalBtn();
+updateCarBtn();
+
+/* keep structures in sync after terrain edits */
+const _applyTerrainEdit = applyTerrainEdit;
+applyTerrainEdit = function (dig) {
+  _applyTerrainEdit(dig);
+  rebuildStructures(true);
+};
+
+/* keep the car updated if the terrain is edited under it */
+addEventListener('keydown', e => {
+  if (e.key === 'r' || e.key === 'R') {
+    car.y = cachedHeightAt(car.x, car.z) + 0.5;
+    car.netY = car.y;
+  }
+});
+
+console.log('%c✔ Car · Survival · Enemies · Structures · Respawn loaded',
+            'color:#4f8;font-weight:bold');
 })();
 </script>
 </body>
