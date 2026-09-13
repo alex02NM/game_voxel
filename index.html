@@ -1529,7 +1529,8 @@ function handleKeyInput() {
   vec3.normalize(forward, forward);
   vec3.normalize(right,   right);
   const sprintMult = (sprinting || (keysPressed['Shift'] && !flightMode)) ? 2.4 : 1;
-  const step = (flightMode ? .5 : .05) * sprintMult;
+  /* FASTER WALK SPEED: was .05 walking / .5 flying */
+  const step = (flightMode ? .8 : .16) * sprintMult;
   let mf = 0, mr = 0;
   if (keysPressed['w']) mf += 1;
   if (keysPressed['s']) mf -= 1;
@@ -2545,7 +2546,7 @@ function animate() {
 
 <!-- ══════════════════════════════════════════════════════════════
      EXTENSION — CAR · SURVIVAL · GUNS · ENEMIES · DAY/NIGHT ·
-     STRUCTURES · RESPAWN
+     STRUCTURES · RESPAWN · FAST WALK
      ══════════════════════════════════════════════════════════════ -->
 <script>
 (function () {
@@ -2812,23 +2813,19 @@ const dayNight = {
 function updateDayNight(dt) {
   if (!dayNight.enabled) return;
   dayNight.time = (dayNight.time + dt / dayNight.cycleSec) % 1;
-
   const sunA = (dayNight.time - 0.25) * Math.PI * 2;
   const sy   = Math.sin(sunA);
   const sx   = Math.cos(sunA) * 0.6;
   SUN_DIR[0] = sx;
   SUN_DIR[1] = Math.max(-0.4, sy);
   SUN_DIR[2] = 0.30;
-
   const nf = Math.max(0, Math.min(1, 1 - (sy + 0.14) * 3));
   dayNight.nightFactor = nf;
   dayNight.isNight = nf > 0.55;
-
   const warm = Math.max(0, 1 - Math.abs(sy) * 2.2);
   SUN_COLOR[0] = 1.05 * (1 - nf * 0.72) + 0.18 * nf + warm * 0.15;
   SUN_COLOR[1] = 1.00 * (1 - nf * 0.72) + 0.16 * nf + warm * 0.05;
   SUN_COLOR[2] = 0.90 * (1 - nf * 0.85) + 0.30 * nf - warm * 0.10;
-
   if (dayNight.isNight && survival.on) {
     dayNight.nextScream -= dt;
     if (dayNight.nextScream <= 0) {
@@ -2915,7 +2912,6 @@ function updateCar(dt) {
     str +=  joyVec.x;
     thr = Math.max(-1, Math.min(1, thr));
     str = Math.max(-1, Math.min(1, str));
-
     const MAXF = 26, MAXR = -9, ACC = 16, BRK = 28, FRIC = 8;
     if (thr > 0.05)       car.speed += ACC * thr * dt;
     else if (thr < -0.05) car.speed += BRK * thr * dt;
@@ -2927,20 +2923,17 @@ function updateCar(dt) {
     car.speed = Math.max(MAXR, Math.min(MAXF, car.speed));
     const sf = Math.min(1, Math.abs(car.speed) / 5);
     car.yaw += str * 1.9 * sf * dt * (car.speed < -0.5 ? -1 : 1);
-
     const fx = Math.sin(car.yaw), fz = -Math.cos(car.yaw);
     car.x += fx * car.speed * dt;
     car.z += fz * car.speed * dt;
     const gy = cachedHeightAt(car.x, car.z) + 0.5;
     car.y += (gy - car.y) * Math.min(1, dt * 10);
-
     const back = 9.0, up = 4.0;
     targetPosition[0] = car.x - fx * back;
     targetPosition[1] = car.y + up;
     targetPosition[2] = car.z - fz * back;
     mouseX = car.yaw;
     mouseY = -0.16;
-
     const k = Math.min(1, dt * 14);
     position[0] += (targetPosition[0] - position[0]) * k;
     position[1] += (targetPosition[1] - position[1]) * k;
@@ -2971,15 +2964,16 @@ const survival = {
 };
 
 const enemies = [];
-const MAX_ENEMIES_DAY   = 12;
-const MAX_ENEMIES_NIGHT = 30;
+const MAX_ENEMIES_DAY   = 18;
+const MAX_ENEMIES_NIGHT = 40;
 
 const ENEMY_DEF = {
   zombie:   { hp:34, speed:2.1,  radius:0.50, color:[0.34,0.62,0.36], dmg:8,  snd:'zombie',   nightBias:3 },
   skeleton: { hp:22, speed:3.0,  radius:0.45, color:[0.90,0.90,0.84], dmg:6,  snd:'skeleton', nightBias:2 },
   brute:    { hp:95, speed:1.45, radius:0.85, color:[0.56,0.22,0.22], dmg:18, snd:'brute',    nightBias:1 },
   spider:   { hp:14, speed:4.2,  radius:0.42, color:[0.14,0.10,0.16], dmg:4,  snd:'spider',   nightBias:3 },
-  creeper:  { hp:18, speed:2.4,  radius:0.55, color:[0.30,0.72,0.28], dmg:0,  snd:'creeper_fuse', nightBias:4, explodes:true }
+  /* CREEPER: high bias so it spawns a lot, day and night */
+  creeper:  { hp:18, speed:2.4,  radius:0.55, color:[0.30,0.72,0.28], dmg:0,  snd:'creeper_fuse', nightBias:6, explodes:true }
 };
 
 function pickEnemyType() {
@@ -2987,7 +2981,13 @@ function pickEnemyType() {
   const pool = [];
   for (const k in ENEMY_DEF) {
     const def = ENEMY_DEF[k];
-    const w = night ? def.nightBias : Math.max(1, 3 - def.nightBias);
+    /* CREEPERS: heavy weight even during the day */
+    let w;
+    if (k === 'creeper')      w = night ? 8 : 5;
+    else if (k === 'zombie')  w = night ? 6 : 3;
+    else if (k === 'skeleton')w = night ? 3 : 2;
+    else if (k === 'spider')  w = night ? 3 : 1;
+    else                      w = 1;
     for (let i = 0; i < w; i++) pool.push(k);
   }
   return pool[(Math.random() * pool.length) | 0];
@@ -2997,7 +2997,7 @@ let enemySpawnTimer = 0;
 function spawnEnemy(forceType) {
   const type = forceType || pickEnemyType();
   const a = Math.random() * TAU;
-  const r = 26 + Math.random() * 30;
+  const r = 22 + Math.random() * 28;
   const x = targetPosition[0] + Math.cos(a) * r;
   const z = targetPosition[2] + Math.sin(a) * r;
   const y = cachedHeightAt(x, z);
@@ -3046,9 +3046,10 @@ function updateSurvival(dt) {
     const cap = dayNight.isNight ? MAX_ENEMIES_NIGHT : MAX_ENEMIES_DAY;
     enemySpawnTimer -= dt;
     if (enemySpawnTimer <= 0 && enemies.length < cap) {
-      enemySpawnTimer = dayNight.isNight ? 0.7 + Math.random()*1.3 : 2.2 + Math.random()*2.6;
+      enemySpawnTimer = dayNight.isNight ? 0.5 + Math.random()*1.0 : 1.4 + Math.random()*1.8;
       spawnEnemy();
-      if (dayNight.isNight && Math.random() < 0.45 && enemies.length < cap) spawnEnemy();
+      if (Math.random() < 0.55 && enemies.length < cap) spawnEnemy();
+      if (dayNight.isNight && Math.random() < 0.5 && enemies.length < cap) spawnEnemy();
     }
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
@@ -3119,21 +3120,18 @@ function shoot() {
   if (survival.recharge > 1.4) survival.recharge = 1.4;
   playSfx('gunshot');
   muzzleFlashT = 0.09;
-
   const cp = Math.cos(mouseY);
   const dx0 = Math.sin(mouseX) * cp;
   const dy0 = Math.sin(mouseY);
   const dz0 = -Math.cos(mouseX) * cp;
   const ox = position[0], oy = position[1], oz = position[2];
   let hitAnything = false;
-
   for (let pellet = 0; pellet < 4; pellet++) {
     const sx = (Math.random() - 0.5) * 0.045;
     const sy = (Math.random() - 0.5) * 0.045;
     const sz = (Math.random() - 0.5) * 0.045;
     const rl = Math.hypot(dx0 + sx, dy0 + sy, dz0 + sz);
     const rx = (dx0 + sx)/rl, ry = (dy0 + sy)/rl, rz = (dz0 + sz)/rl;
-
     let best = null, bestT = 70;
     for (const e of enemies) {
       const def = ENEMY_DEF[e.type];
@@ -3188,7 +3186,7 @@ const STRUCT_DEFS = [
   { name:'ruins',    res:'stone', amt:3 },
   { name:'house',    res:'wood',  amt:5 }
 ];
-const STRUCT_CELL   = 44;
+const STRUCT_CELL   = 40;   /* tighter grid = more structures per area */
 const STRUCT_RADIUS = 230;
 const structures    = [];
 const gatheredAt    = new Map();
@@ -3205,7 +3203,8 @@ function rebuildStructures(force) {
   for (let dz = -R; dz <= R; dz++) {
     for (let dx = -R; dx <= R; dx++) {
       const gx = cix + dx, gz = ciz + dz;
-      if (hash2(gx, gz, seed) > 0.32) continue;
+      /* sparser check = fewer structures, raise threshold to 0.55 to spawn more */
+      if (hash2(gx, gz, seed) > 0.55) continue;
       const r1 = hash2(gx + 101, gz - 203, seed);
       const r2 = hash2(gx - 307, gz + 509, seed);
       const r3 = hash2(gx + 701, gz + 907, seed);
@@ -3220,7 +3219,7 @@ function rebuildStructures(force) {
       const scale = 0.9 + r4 * 0.6;
       const yaw   = hash2(gx + 211, gz - 223, seed) * TAU;
       structures.push({ x: px, y: y - 0.05, z: pz, yaw, type, scale, gx, gz });
-      if (structures.length > 90) return;
+      if (structures.length > 180) return;
     }
   }
 }
@@ -3243,7 +3242,7 @@ function updateStructures(dt) {
 /* ══════════════════════════════════════════════════════════
    7 · RENDER GEOMETRY
    ══════════════════════════════════════════════════════════ */
-const EXTRA_BOX_CAP = 2000;
+const EXTRA_BOX_CAP = 4000;
 const extraData = new Float32Array(EXTRA_BOX_CAP * VERTS_PER_BOX * FLOATS_PER_VERT);
 const extraVBO  = gl.createBuffer();
 const extraVAO  = gl.createVertexArray();
@@ -3410,7 +3409,7 @@ function drawExtras() {
 
   if (fits(7))                              k = appendCar(extraData, k, car);
   for (const e of enemies) if (fits(12))    k = appendEnemy(extraData, k, e);
-  for (const s of structures) if (fits(24)) k = appendStructure(extraData, k, s);
+  for (const s of structures) if (fits(30)) k = appendStructure(extraData, k, s);
 
   if (!k) return;
   gl.useProgram(mobProgram);
@@ -3734,7 +3733,7 @@ setInterval(() => {
     String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
 }, 500);
 
-console.log('%c✔ Full game loaded: guns · day/night · creepers · houses · no-fly-in-survival · screams',
+console.log('%c✔ Full game loaded: FAST WALK · guns · day/night · CREEPERS · HOUSES · no-fly-in-survival · screams',
             'color:#4f8;font-weight:bold');
 })();
 </script>
