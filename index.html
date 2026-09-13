@@ -6,7 +6,7 @@
 html,body{margin:0;height:100%;height:100dvh;overflow:hidden;background:#000;overscroll-behavior:none;-webkit-user-select:none;user-select:none;font:14px monospace}
 body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);box-sizing:border-box}
 canvas{display:block;width:100vw;height:100dvh;touch-action:none;-webkit-tap-highlight-color:transparent}button{-webkit-tap-highlight-color:transparent}
-.hud{position:fixed;left:8px;z-index:10;color:#0f0}#fps{top:8px}#mode{top:26px;color:#0ff}#biome{top:44px;color:#ff0}#net{top:62px;color:#f80}
+.hud{position:fixed;left:8px;z-index:10;color:#0f0}#fps{top:8px}#mode{top:26px;color:#0ff}#biome{top:44px;color:#ff0}#net{top:62px;color:#f80}#time{top:80px;color:#fc8}
 #status{position:fixed;right:8px;top:8px;z-index:10;color:#0af;font-size:12px;text-align:right}
 #fly{position:fixed;right:8px;bottom:8px;z-index:10;color:#f0f}#help{position:fixed;left:8px;bottom:8px;z-index:10;color:#888;font-size:12px}
 #params{position:fixed;top:30px;right:8px;z-index:20;width:250px;max-height:78vh;overflow-y:auto;padding:10px 12px;border:1px solid #333;border-radius:8px;background:rgba(20,20,20,.85);color:#eee;font-size:12px;touch-action:pan-y}
@@ -67,14 +67,14 @@ html.pseudo-fullscreen,html.pseudo-fullscreen body{position:fixed;inset:0;width:
 #crosshair::after{top:50%;left:0;height:2px;width:100%;transform:translateY(-50%)}
 #safe-indicator{position:fixed;left:50%;top:70px;transform:translateX(-50%);z-index:12;color:#0f9;font:bold 15px monospace;text-shadow:0 0 10px #0f9,0 0 3px #000;display:none;pointer-events:none;letter-spacing:2px}
 #safe-indicator.on{display:block}
-@media (max-width:900px){#params{width:210px;top:62px;font-size:11px}#help{display:none}#fps,#mode,#biome,#net{font-size:11px}}
+@media (max-width:900px){#params{width:210px;top:62px;font-size:11px}#help{display:none}#fps,#mode,#biome,#net,#time{font-size:11px}}
 @media (max-height:480px){#joystick{width:128px;height:128px}#stick{width:58px;height:58px;margin:-29px 0 0 -29px}#primary-grid{grid-template-columns:72px 72px;grid-template-rows:72px 72px;gap:10px}.tbtn.lg{width:72px;height:72px;font-size:26px}.tbtn.sm{width:50px;height:50px;font-size:19px}}
 @media (max-width:900px),(pointer:coarse),(hover:none){#params{display:none!important}}
 </style></head><body>
 <canvas id="webgl-canvas"></canvas>
-<div id="fps" class="hud"></div><div id="mode" class="hud"></div><div id="biome" class="hud"></div><div id="net" class="hud"></div>
+<div id="fps" class="hud"></div><div id="mode" class="hud"></div><div id="biome" class="hud"></div><div id="net" class="hud"></div><div id="time" class="hud"></div>
 <div id="fly"></div><div id="status"></div>
-<div id="help">WASD · Space jump · F fly · LMB fire · B shop · 1-6 weapons · V mode (free roam)</div>
+<div id="help">WASD · Space jump · F fly · T time speed · LMB fire · B shop · 1-6 weapons · V mode</div>
 <div id="game-hud"><div id="round-timer">READY</div><div id="round-num"></div></div>
 <div id="hp-hud"><div id="hp-hud-fill"></div><span>HP <span id="hp-hud-text">100</span></span></div>
 <div id="weapon-hud"></div><div id="xp-hud"></div><div id="money-hud">$500</div>
@@ -112,6 +112,12 @@ const joyVec={x:0,y:0};let lookTouchId=null,sprinting=false,velocityY=13,grounde
 const GRAVITY=-30,EYE_HEIGHT=2,JUMP_SPEED=30,MAX_EDITS=32,edits=[],MODE_NAMES=['SMOOTH','VOXEL','MINECRAFT BLOCKS'];
 let modeIndex=0,blockSize=1;const SUN_DIR=[.45,.85,.30],SUN_COLOR=[1.05,1,.90],EXPOSURE=1;
 let shadowsEnabled=true,treesEnabled=true,TREE_HEIGHT_MULT=1.5,TREE_DENSITY_MULT=1.6;
+/* Day/night cycle state */
+let timeOfDay=10.0;
+const DAY_SECONDS=240;
+let timeSpeed=1;
+const TIME_SPEED_NAMES=['⏸','1×','2×','4×'];
+let timeSpeedIndex=1;
 const BIOMES=[
 {name:'PLAINS',sky:[.58,.76,.97],top:[.20,.42,.86],ground:[.34,.40,.22],zombie:.22,animal:.78,tree:.12,conifer:.25},
 {name:'FOREST',sky:[.42,.60,.60],top:[.13,.28,.34],ground:[.18,.26,.15],zombie:.45,animal:.55,tree:.75,conifer:.55},
@@ -135,7 +141,7 @@ let currentWeaponKey='pistol',mouseDown=false,lastShotMs=0,reloading=false;
 const COMMON_GLSL=`uniform vec3 u_sunDir,u_sunColor,u_skyTop,u_skyHorizon,u_groundColor;uniform float u_exposure;
 vec3 aces(vec3 x){const float a=2.51,b=0.03,c=2.43,d=0.59,e=0.14;return clamp((x*(a*x+b))/(x*(c*x+d)+e),0.0,1.0);}
 vec3 toSRGB(vec3 c){return pow(max(c,0.0),vec3(1.0/2.2));}
-vec3 skyColor(vec3 dir){vec3 d=normalize(dir);float h=d.y;float sd=max(dot(d,normalize(u_sunDir)),0.0);float t=clamp(h*1.4+0.06,0.0,1.0);vec3 sky=mix(u_skyHorizon,u_skyTop,pow(t,0.62));sky=mix(u_skyHorizon*0.72,sky,smoothstep(-0.16,0.05,h));sky+=u_sunColor*pow(sd,12.0)*0.30;sky+=u_sunColor*smoothstep(0.9985,0.9996,sd)*10.0;return sky;}
+vec3 skyColor(vec3 dir){vec3 d=normalize(dir);float h=d.y;float sd=max(dot(d,normalize(u_sunDir)),0.0);float t=clamp(h*1.4+0.06,0.0,1.0);vec3 sky=mix(u_skyHorizon,u_skyTop,pow(t,0.62));sky=mix(u_skyHorizon*0.72,sky,smoothstep(-0.16,0.05,h));sky+=u_sunColor*pow(sd,12.0)*0.30;sky+=u_sunColor*smoothstep(0.9985,0.9996,sd)*10.0;float nightF=smoothstep(0.05,-0.18,u_sunDir.y);vec3 moonDir=normalize(vec3(-u_sunDir.x,-u_sunDir.y,-u_sunDir.z));float md=max(dot(d,moonDir),0.0);sky+=vec3(0.98,0.98,0.92)*smoothstep(0.9987,0.9996,md)*nightF*8.0;sky+=vec3(0.35,0.42,0.62)*pow(md,55.0)*nightF*0.6;return sky;}
 vec3 hemiAmbient(vec3 N){return mix(u_groundColor,u_skyTop,clamp(N.y*0.5+0.5,0.0,1.0));}`;
 const terrainGLSL=`uniform vec4 u_edits[32];uniform int u_editCount;uniform float u_blocky,u_blockSize,u_mode;
 float f(float x,float s,float k,float p){float val=45731.0*cos(1e5*floor(x)+s);return(k*mod(val,2.0))/p;}
@@ -349,56 +355,47 @@ gl.uniformMatrix4fv(mobU.u_projectionMatrix,false,projectionMatrix);gl.uniformMa
 gl.disable(gl.CULL_FACE);gl.drawArrays(gl.TRIANGLES,0,k/FLOATS_PER_VERT);gl.enable(gl.CULL_FACE);gl.bindVertexArray(null);gl.useProgram(program);}
 
 /* ══════════════════════════════════════════════════════════════════
-   VOXEL TREES  (replaces the old cylinder/cone/sphere tree system)
+   VOXEL TREES
    ══════════════════════════════════════════════════════════════════ */
-const TAU=Math.PI*2,TREE_CELL=2.4,TREE_RADIUS=120,TREE_MAX_INST=3500,TREE_FADE_START=90,TREE_FADE_END=115,TREE_INST_FLOATS=8,TREE_STRIDE=TREE_INST_FLOATS*4;
+const TAU=Math.PI*2,TREE_CELL=2.4,TREE_RADIUS=140,TREE_MAX_INST=6000,TREE_FADE_START=105,TREE_FADE_END=135,TREE_INST_FLOATS=8,TREE_STRIDE=TREE_INST_FLOATS*4;
 const TREE_EMERGENT=0,TREE_CANOPY=1,TREE_PALM=2,TREE_UNDERSTORY=3,TREE_FERN=4,TREE_TYPES=5,TREE_NOMINAL_H=[38,18,26,7,2.8];
 const treeTypeVertStart=new Int32Array(TREE_TYPES),treeTypeVertCount=new Int32Array(TREE_TYPES),treeTypeCount=new Int32Array(TREE_TYPES);
 
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
 
-/* ── Species definitions: each one drives its own recursive growth ── */
 const VOXEL_SPECIES=[
-  // EMERGENT — tall tropical emergent
   { trunk:13, maxDepth:3, baseBranches:3, branchChance:0.65, lengthFalloff:0.70,
     leafDepth:2, leafSpread:3, leafPerVoxel:2,
     trunkColors:[[0.16,0.11,0.07],[0.22,0.15,0.10],[0.14,0.09,0.06]],
     leafColors:[[0.08,0.26,0.08],[0.13,0.36,0.11],[0.18,0.44,0.14]] },
-  // CANOPY — medium broadleaf
   { trunk:9,  maxDepth:3, baseBranches:3, branchChance:0.65, lengthFalloff:0.70,
     leafDepth:1, leafSpread:3, leafPerVoxel:3,
     trunkColors:[[0.20,0.14,0.09],[0.28,0.20,0.13]],
     leafColors:[[0.10,0.30,0.10],[0.15,0.40,0.13],[0.20,0.46,0.15]] },
-  // PALM — slender trunk with fronds
   { trunk:12, maxDepth:2, baseBranches:5, branchChance:0.55, lengthFalloff:0.40,
     leafDepth:1, leafSpread:3, leafPerVoxel:3,
     trunkColors:[[0.22,0.16,0.10],[0.30,0.22,0.14]],
     leafColors:[[0.09,0.28,0.08],[0.14,0.36,0.11]] },
-  // UNDERSTORY — small tree
   { trunk:5,  maxDepth:3, baseBranches:3, branchChance:0.65, lengthFalloff:0.65,
     leafDepth:1, leafSpread:3, leafPerVoxel:3,
     trunkColors:[[0.16,0.11,0.08],[0.22,0.15,0.10]],
     leafColors:[[0.10,0.28,0.09],[0.16,0.38,0.12]] },
-  // FERN — small bush
   { trunk:2,  maxDepth:2, baseBranches:4, branchChance:0.70, lengthFalloff:0.55,
     leafDepth:0, leafSpread:3, leafPerVoxel:3,
     trunkColors:[[0.14,0.09,0.06]],
     leafColors:[[0.12,0.30,0.10],[0.16,0.38,0.12]] },
 ];
 
-/* ── Recursive branch generator — produces a Map of voxel cells ── */
 function generateVoxelTreeBlueprint(type,seed){
   const rand=mulberry32(seed);
   const sp=VOXEL_SPECIES[type];
   const voxels=new Map();
-
   function place(x,y,z,color){
     const ix=Math.round(x),iy=Math.round(y),iz=Math.round(z);
     if(iy<0)return;
     const k=ix+','+iy+','+iz;
     if(!voxels.has(k))voxels.set(k,{x:ix,y:iy,z:iz,c:color});
   }
-
   function branch(ox,oy,oz,dx,dy,dz,length,depth){
     const steps=Math.max(1,Math.round(length));
     for(let i=1;i<=steps;i++){
@@ -406,10 +403,8 @@ function generateVoxelTreeBlueprint(type,seed){
       const px=ox+dx*length*t;
       const py=oy+dy*length*t;
       const pz=oz+dz*length*t;
-
       const wc=sp.trunkColors[(rand()*sp.trunkColors.length)|0];
       place(px,py,pz,wc);
-
       if(depth>=sp.leafDepth&&t>0.25){
         for(let c=0;c<sp.leafPerVoxel;c++){
           const lx=px+(rand()-0.5)*sp.leafSpread;
@@ -420,14 +415,11 @@ function generateVoxelTreeBlueprint(type,seed){
         }
       }
     }
-
     if(depth>=sp.maxDepth)return;
-
     const tx=ox+dx*length;
     const ty=oy+dy*length;
     const tz=oz+dz*length;
     const n=depth===0?sp.baseBranches:(rand()<sp.branchChance?2:1);
-
     for(let b=0;b<n;b++){
       const a=rand()*Math.PI*2;
       const spread=0.55+rand()*0.55;
@@ -439,12 +431,10 @@ function generateVoxelTreeBlueprint(type,seed){
       branch(tx,ty,tz,nx,ny,nz,length*sp.lengthFalloff,depth+1);
     }
   }
-
   branch(0,0,0,0,1,0,sp.trunk,0);
   return voxels;
 }
 
-/* ── Cube face table (CW winding, matches gl.frontFace(gl.CW)) ── */
 const VOXEL_FACES=[
   { n:[ 1,0,0], v:[[ 0.5,-0.5, 0.5],[ 0.5,-0.5,-0.5],[ 0.5, 0.5,-0.5],[ 0.5, 0.5, 0.5]] },
   { n:[-1,0,0], v:[[-0.5,-0.5,-0.5],[-0.5,-0.5, 0.5],[-0.5, 0.5, 0.5],[-0.5, 0.5,-0.5]] },
@@ -454,7 +444,6 @@ const VOXEL_FACES=[
   { n:[ 0,0,-1], v:[[ 0.5, 0.5,-0.5],[-0.5, 0.5,-0.5],[-0.5,-0.5,-0.5],[ 0.5,-0.5,-0.5]] },
 ];
 
-/* ── Exposed-face mesh builder — skips interior faces ── */
 function buildVoxelMesh(voxels){
   const pos=[],nrm=[],col=[];
   for(const v of voxels.values()){
@@ -475,28 +464,20 @@ function buildVoxelMesh(voxels){
   return {pos,nrm,col};
 }
 
-/* ── Bake all 5 species into a single interleaved VBO ── */
 (function(){
   const allPos=[],allNrm=[],allCol=[];
   let vertOffset=0;
-
   for(let t=0;t<TREE_TYPES;t++){
     const voxels=generateVoxelTreeBlueprint(t,0xBEEF+t*9973);
     const mesh=buildVoxelMesh(voxels);
     const n=mesh.pos.length/3;
-
-    // Find highest voxel centre so we can normalise model height to 1.0
     let maxY=0.5;
     for(let i=1;i<mesh.pos.length;i+=3)if(mesh.pos[i]>maxY)maxY=mesh.pos[i];
-    // Bottom of lowest voxel is at y=-0.5, top at maxY+0.5.
-    // Shift by +0.5 then divide by (maxY+1) so range becomes [0,1].
     const yShift=0.5;
     const invH=1.0/(maxY+1.0);
-
     treeTypeVertStart[t]=vertOffset;
     treeTypeVertCount[t]=n;
     vertOffset+=n;
-
     for(let i=0;i<mesh.pos.length;i+=3){
       allPos.push(
         mesh.pos[i]   * invH,
@@ -507,14 +488,12 @@ function buildVoxelMesh(voxels){
     for(let i=0;i<mesh.nrm.length;i++)allNrm.push(mesh.nrm[i]);
     for(let i=0;i<mesh.col.length;i++)allCol.push(mesh.col[i]);
   }
-
   const mesh=new Float32Array(vertOffset*9);
   for(let i=0;i<vertOffset;i++){
     mesh[i*9]  =allPos[i*3];   mesh[i*9+1]=allPos[i*3+1]; mesh[i*9+2]=allPos[i*3+2];
     mesh[i*9+3]=allNrm[i*3];   mesh[i*9+4]=allNrm[i*3+1]; mesh[i*9+5]=allNrm[i*3+2];
     mesh[i*9+6]=allCol[i*3];   mesh[i*9+7]=allCol[i*3+1]; mesh[i*9+8]=allCol[i*3+2];
   }
-
   const vbo=gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER,vbo);
   gl.bufferData(gl.ARRAY_BUFFER,mesh,gl.STATIC_DRAW);
@@ -529,25 +508,57 @@ gl.enableVertexAttribArray(3);gl.vertexAttribPointer(3,3,gl.FLOAT,false,TREE_STR
 gl.enableVertexAttribArray(4);gl.vertexAttribPointer(4,4,gl.FLOAT,false,TREE_STRIDE,12);gl.vertexAttribDivisor(4,1);gl.bindVertexArray(null);
 function hash2(ix,iz,seed){let h=Math.imul(ix,374761393)^Math.imul(iz,668265263)^Math.imul(seed,1274126177);h=Math.imul(h^(h>>>13),1274126177);h^=h>>>16;return(h>>>0)/4294967296;}
 let treeInstData=new Float32Array(TREE_MAX_INST*TREE_INST_FLOATS),lastTreeX=1e9,lastTreeZ=1e9,treeSig='';
-function rebuildTreeInstances(force){if(!treesEnabled){for(let i=0;i<TREE_TYPES;i++)treeTypeCount[i]=0;return;}
+
+/* ── Fixed: even distribution, biome floor, relaxed height/slope gates ── */
+function rebuildTreeInstances(force){
+if(!treesEnabled){for(let i=0;i<TREE_TYPES;i++)treeTypeCount[i]=0;return;}
 const cx=targetPosition[0],cz=targetPosition[2];
 const sig=`${TERRAIN.k}|${TERRAIN.p}|${TERRAIN.m}|${TERRAIN.seed}|${blockSize}|${modeIndex}|${TREE_HEIGHT_MULT.toFixed(2)}|${TREE_DENSITY_MULT.toFixed(2)}`;
-const moved=Math.hypot(cx-lastTreeX,cz-lastTreeZ);if(!force&&moved<4&&sig===treeSig)return;lastTreeX=cx;lastTreeZ=cz;treeSig=sig;
+const moved=Math.hypot(cx-lastTreeX,cz-lastTreeZ);
+if(!force&&moved<2&&sig===treeSig)return;
+lastTreeX=cx;lastTreeZ=cz;treeSig=sig;
 const R=Math.ceil(TREE_RADIUS/TREE_CELL),cix=Math.round(cx/TREE_CELL),ciz=Math.round(cz/TREE_CELL),seed=(Math.floor(TERRAIN.seed*1000)|0)^0x5f3a,R2=TREE_RADIUS*TREE_RADIUS,buckets=[[],[],[],[],[]];
-for(let dz=-R;dz<=R;dz++){for(let dx=-R;dx<=R;dx++){const gx=cix+dx,gz=ciz+dz;if(hash2(gx,gz,seed)>.85)continue;
-const r1=hash2(gx+9173,gz-4421,seed),r2=hash2(gx-3391,gz+7717,seed),r3=hash2(gx+5521,gz+1291,seed),r4=hash2(gx+3119,gz-6571,seed),r5=hash2(gx+7731,gz+3917,seed),r6=hash2(gx-1229,gz+8231,seed);
-const px=(gx+r1)*TREE_CELL,pz=(gz+r2)*TREE_CELL;const ddx=px-cx,ddz=pz-cz;if(ddx*ddx+ddz*ddz>R2)continue;
-const y=cachedHeightAt(px,pz);if(y>32)continue;
-const sxSlope=Math.abs(cachedHeightAt(px+2.5,pz)-y),szSlope=Math.abs(cachedHeightAt(px,pz+2.5)-y);if(Math.max(sxSlope,szSlope)>2.0)continue;
-const bw=biomeWeights(px,pz);let density=0;for(let i=0;i<BIOMES.length;i++)density+=bw[i]*BIOMES[i].tree;density*=TREE_DENSITY_MULT;if(r3>Math.min(1.0,density))continue;
-let type;if(r4<.04)type=TREE_EMERGENT;else if(r4<.22)type=TREE_CANOPY;else if(r4<.34)type=TREE_PALM;else if(r4<.58)type=TREE_UNDERSTORY;else type=TREE_FERN;
-const variation=.75+r5*.5,baseH=TREE_NOMINAL_H[type]*variation*TREE_HEIGHT_MULT,aspect=.85+r6*.4,yaw=hash2(gx+4241,gz-811,seed)*TAU,cv=hash2(gx+1337,gz+2027,seed);
-buckets[type].push([px,y-.15,pz,baseH,baseH*aspect,yaw,cv,0]);}}
+for(let dz=-R;dz<=R;dz++){
+  for(let dx=-R;dx<=R;dx++){
+    const gx=cix+dx,gz=ciz+dz;
+    const r1=hash2(gx+9173,gz-4421,seed),r2=hash2(gx-3391,gz+7717,seed),r3=hash2(gx+5521,gz+1291,seed),r4=hash2(gx+3119,gz-6571,seed),r5=hash2(gx+7731,gz+3917,seed),r6=hash2(gx-1229,gz+8231,seed);
+    const px=(gx+r1)*TREE_CELL,pz=(gz+r2)*TREE_CELL;
+    const ddx=px-cx,ddz=pz-cz;const d2=ddx*ddx+ddz*ddz;
+    if(d2>R2)continue;
+    const bw=biomeWeights(px,pz);
+    let biomeDensity=0;
+    for(let i=0;i<BIOMES.length;i++)biomeDensity+=bw[i]*BIOMES[i].tree;
+    const density=Math.min(1.0,0.22+biomeDensity*TREE_DENSITY_MULT*0.75);
+    if(r3>density)continue;
+    const y=cachedHeightAt(px,pz);
+    if(y>70)continue;
+    const sxSlope=Math.abs(cachedHeightAt(px+2.5,pz)-y),szSlope=Math.abs(cachedHeightAt(px,pz+2.5)-y);
+    if(Math.max(sxSlope,szSlope)>3.5)continue;
+    let type;
+    if(r4<.03)type=TREE_EMERGENT;
+    else if(r4<.28)type=TREE_CANOPY;
+    else if(r4<.42)type=TREE_PALM;
+    else if(r4<.72)type=TREE_UNDERSTORY;
+    else type=TREE_FERN;
+    const variation=.78+r5*.44;
+    const baseH=TREE_NOMINAL_H[type]*variation*TREE_HEIGHT_MULT;
+    const aspect=.88+r6*.34;
+    const yaw=hash2(gx+4241,gz-811,seed)*TAU;
+    const cv=hash2(gx+1337,gz+2027,seed);
+    buckets[type].push([px,y-.15,pz,baseH,baseH*aspect,yaw,cv,0]);
+  }
+}
 let total=0;for(let t=0;t<TREE_TYPES;t++)total+=buckets[t].length;
-if(total>TREE_MAX_INST){const order=Array.from({length:TREE_TYPES},(_,i)=>i).sort((a,b)=>buckets[b].length-buckets[a].length);let over=total-TREE_MAX_INST,oi=0;
-while(over>0&&oi<200){const t=order[oi%TREE_TYPES];if(buckets[t].length>0){const drop=Math.min(over,Math.ceil(buckets[t].length*.1));buckets[t].length=Math.max(0,buckets[t].length-drop);over-=drop;}oi++;}}
-let k=0;for(let t=0;t<TREE_TYPES;t++){treeTypeCount[t]=buckets[t].length;for(const rec of buckets[t]){treeInstData.set(rec,k);k+=TREE_INST_FLOATS;}}
-if(k>0){gl.bindBuffer(gl.ARRAY_BUFFER,treeInstVBO);gl.bufferSubData(gl.ARRAY_BUFFER,0,treeInstData,0,k);}}
+if(total>TREE_MAX_INST){
+  const order=Array.from({length:TREE_TYPES},(_,i)=>i).sort((a,b)=>buckets[b].length-buckets[a].length);
+  let over=total-TREE_MAX_INST,oi=0;
+  while(over>0&&oi<200){const t=order[oi%TREE_TYPES];if(buckets[t].length>0){const drop=Math.min(over,Math.ceil(buckets[t].length*.1));buckets[t].length=Math.max(0,buckets[t].length-drop);over-=drop;}oi++;}
+}
+let k=0;
+for(let t=0;t<TREE_TYPES;t++){treeTypeCount[t]=buckets[t].length;for(const rec of buckets[t]){treeInstData.set(rec,k);k+=TREE_INST_FLOATS;}}
+if(k>0){gl.bindBuffer(gl.ARRAY_BUFFER,treeInstVBO);gl.bufferSubData(gl.ARRAY_BUFFER,0,treeInstData,0,k);}
+}
+
 function drawTrees(){if(!treesEnabled)return;let total=0;for(let t=0;t<TREE_TYPES;t++)total+=treeTypeCount[t];if(total===0)return;
 gl.useProgram(treeProgram);pushLighting(treeProgram,treeU);gl.uniformMatrix4fv(treeU.u_projectionMatrix,false,projectionMatrix);gl.uniformMatrix4fv(treeU.u_modelViewMatrix,false,modelViewMatrix);
 gl.uniform3f(treeU.u_cameraPosition,...position);gl.uniform1f(treeU.u_fogDensity,FOG_DENSITY);gl.uniform1f(treeU.u_time,performance.now()*.001);gl.uniform1f(treeU.u_fadeStart,TREE_FADE_START);gl.uniform1f(treeU.u_fadeEnd,TREE_FADE_END);
@@ -560,13 +571,71 @@ const viewProjMat=mat4.create(),invViewProjMat=mat4.create();
 function drawSky(){mat4.multiply(viewProjMat,projectionMatrix,modelViewMatrix);if(!mat4.invert(invViewProjMat,viewProjMat))return;
 gl.useProgram(skyProgram);pushLighting(skyProgram,skyU);gl.uniformMatrix4fv(skyU.u_invViewProj,false,invViewProjMat);
 gl.bindVertexArray(null);gl.disable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);gl.depthMask(false);gl.drawArrays(gl.TRIANGLES,0,3);gl.depthMask(true);gl.enable(gl.CULL_FACE);gl.enable(gl.DEPTH_TEST);gl.useProgram(program);}
-function updateAtmosphere(dt){const w=biomeWeights(targetPosition[0],targetPosition[2]);let hr=0,hg=0,hb=0,tr=0,tg=0,tb=0,gr=0,gg=0,gb=0,best=-1,bestI=0;
-for(let i=0;i<BIOMES.length;i++){const B=BIOMES[i];hr+=w[i]*B.sky[0];hg+=w[i]*B.sky[1];hb+=w[i]*B.sky[2];tr+=w[i]*B.top[0];tg+=w[i]*B.top[1];tb+=w[i]*B.top[2];gr+=w[i]*B.ground[0];gg+=w[i]*B.ground[1];gb+=w[i]*B.ground[2];if(w[i]>best){best=w[i];bestI=i;}}
-currentBiomeName=BIOMES[bestI].name;const k=1-Math.exp(-dt*1.6);
-currentSky[0]+=(hr-currentSky[0])*k;currentSky[1]+=(hg-currentSky[1])*k;currentSky[2]+=(hb-currentSky[2])*k;
-currentSkyTop[0]+=(tr-currentSkyTop[0])*k;currentSkyTop[1]+=(tg-currentSkyTop[1])*k;currentSkyTop[2]+=(tb-currentSkyTop[2])*k;
-currentGround[0]+=(gr-currentGround[0])*k;currentGround[1]+=(gg-currentGround[1])*k;currentGround[2]+=(gb-currentGround[2])*k;
-gl.clearColor(...currentSky,1);pushLightingAll();}
+
+/* ── Day/night cycle ── */
+function updateDayNight(dt){
+  if(timeSpeed>0){
+    timeOfDay+=(dt/DAY_SECONDS)*24*timeSpeed;
+    while(timeOfDay>=24)timeOfDay-=24;
+    while(timeOfDay<0)timeOfDay+=24;
+  }
+  const sunAngle=((timeOfDay-6)/12)*Math.PI;
+  const sy=Math.sin(sunAngle);
+  const sx=Math.cos(sunAngle);
+  const sz=0.35;
+  const len=Math.hypot(sx,sy,sz);
+  SUN_DIR[0]=sx/len;
+  SUN_DIR[1]=sy/len;
+  SUN_DIR[2]=sz/len;
+  const dayBlend=smoothstepJS(-0.05,0.30,SUN_DIR[1]);
+  const twilight=Math.max(0,1-Math.abs(SUN_DIR[1]-0.08)*4.5);
+  SUN_COLOR[0]=0.08+dayBlend*0.97+twilight*0.40;
+  SUN_COLOR[1]=0.11+dayBlend*0.89+twilight*0.06;
+  SUN_COLOR[2]=0.22+dayBlend*0.68-twilight*0.06;
+}
+
+const NIGHT_SKY=[0.020,0.030,0.095];
+const NIGHT_TOP=[0.008,0.014,0.050];
+const NIGHT_GROUND=[0.045,0.048,0.090];
+const TWILIGHT_ADD=[0.85,0.30,0.08];
+
+function updateAtmosphere(dt){
+  const w=biomeWeights(targetPosition[0],targetPosition[2]);
+  let hr=0,hg=0,hb=0,tr=0,tg=0,tb=0,gr=0,gg=0,gb=0,best=-1,bestI=0;
+  for(let i=0;i<BIOMES.length;i++){
+    const B=BIOMES[i];
+    hr+=w[i]*B.sky[0];hg+=w[i]*B.sky[1];hb+=w[i]*B.sky[2];
+    tr+=w[i]*B.top[0];tg+=w[i]*B.top[1];tb+=w[i]*B.top[2];
+    gr+=w[i]*B.ground[0];gg+=w[i]*B.ground[1];gb+=w[i]*B.ground[2];
+    if(w[i]>best){best=w[i];bestI=i;}
+  }
+  currentBiomeName=BIOMES[bestI].name;
+  const dayBlend=smoothstepJS(-0.05,0.30,SUN_DIR[1]);
+  const twilight=Math.max(0,1-Math.abs(SUN_DIR[1]-0.08)*4.5);
+  const tw=twilight*0.55;
+  const targetSkyR=hr*dayBlend+NIGHT_SKY[0]*(1-dayBlend)+TWILIGHT_ADD[0]*tw;
+  const targetSkyG=hg*dayBlend+NIGHT_SKY[1]*(1-dayBlend)+TWILIGHT_ADD[1]*tw;
+  const targetSkyB=hb*dayBlend+NIGHT_SKY[2]*(1-dayBlend)+TWILIGHT_ADD[2]*tw;
+  const targetTopR=tr*dayBlend+NIGHT_TOP[0]*(1-dayBlend)+TWILIGHT_ADD[0]*tw*0.4;
+  const targetTopG=tg*dayBlend+NIGHT_TOP[1]*(1-dayBlend)+TWILIGHT_ADD[1]*tw*0.4;
+  const targetTopB=tb*dayBlend+NIGHT_TOP[2]*(1-dayBlend)+TWILIGHT_ADD[2]*tw*0.4;
+  const targetGndR=gr*dayBlend+NIGHT_GROUND[0]*(1-dayBlend);
+  const targetGndG=gg*dayBlend+NIGHT_GROUND[1]*(1-dayBlend);
+  const targetGndB=gb*dayBlend+NIGHT_GROUND[2]*(1-dayBlend);
+  const k=1-Math.exp(-dt*2.0);
+  currentSky[0]+=(targetSkyR-currentSky[0])*k;
+  currentSky[1]+=(targetSkyG-currentSky[1])*k;
+  currentSky[2]+=(targetSkyB-currentSky[2])*k;
+  currentSkyTop[0]+=(targetTopR-currentSkyTop[0])*k;
+  currentSkyTop[1]+=(targetTopG-currentSkyTop[1])*k;
+  currentSkyTop[2]+=(targetTopB-currentSkyTop[2])*k;
+  currentGround[0]+=(targetGndR-currentGround[0])*k;
+  currentGround[1]+=(targetGndG-currentGround[1])*k;
+  currentGround[2]+=(targetGndB-currentGround[2])*k;
+  gl.clearColor(...currentSky,1);
+  pushLightingAll();
+}
+
 let audioCtx=null,sfxGain=null,sfxVolume=.4;
 function initAudioCtx(){if(audioCtx)return;const C=window.AudioContext||window.webkitAudioContext;if(!C)return;audioCtx=new C();sfxGain=audioCtx.createGain();sfxGain.gain.value=sfxVolume;sfxGain.connect(audioCtx.destination);}
 function playTone(freq,dur,type='square',vol=.15,slideTo=null){if(!audioCtx)return;const now=audioCtx.currentTime,o=audioCtx.createOscillator();o.type=type;o.frequency.setValueAtTime(freq,now);if(slideTo)o.frequency.exponentialRampToValueAtTime(slideTo,now+dur);
@@ -664,6 +733,7 @@ case']':if(editLocked)break;blockSize=Math.min(16,blockSize+1);updateModeLabel()
 case'r':case'R':if(editLocked)break;edits.length=0;scheduleWorldBroadcast();rebuildTreeInstances(true);break;
 case'f':case'F':if(editLocked)break;flightMode=!flightMode;if(flightMode)velocityY=0;updateFlyLabel();break;
 case'e':case'E':if(editLocked)break;applyTerrainEdit(false);break;
+case't':case'T':timeSpeedIndex=(timeSpeedIndex+1)%TIME_SPEED_NAMES.length;timeSpeed=[0,1,2,4][timeSpeedIndex];showAnnounce('TIME: '+TIME_SPEED_NAMES[timeSpeedIndex],900);break;
 case'b':case'B':if(gameStarted)toggleShop();break;
 case'1':if(gameStarted)switchWeapon('pistol');break;case'2':if(gameStarted)switchWeapon('smg');break;case'3':if(gameStarted)switchWeapon('shotgun');break;case'4':if(gameStarted)switchWeapon('rifle');break;case'5':if(gameStarted)switchWeapon('sniper');break;case'6':if(gameStarted)switchWeapon('minigun');break;
 case'Escape':document.exitPointerLock?.();break;}});
@@ -692,7 +762,7 @@ function applyTerrainEdit(dig){if(editLocked)return;const x=position[0]+Math.sin
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('mousedown',e=>{if(document.pointerLockElement!==canvas)return;if(e.button===0){if(gameStarted){mouseDown=true;}else{applyTerrainEdit(false);}}else if(e.button===2){if(!gameStarted)applyTerrainEdit(true);}});
 canvas.addEventListener('mouseup',e=>{if(e.button===0)mouseDown=false;});
-const fpsElement=document.getElementById('fps'),modeElement=document.getElementById('mode'),biomeElement=document.getElementById('biome'),netElement=document.getElementById('net'),statusElement=document.getElementById('status');
+const fpsElement=document.getElementById('fps'),modeElement=document.getElementById('mode'),biomeElement=document.getElementById('biome'),netElement=document.getElementById('net'),timeElement=document.getElementById('time'),statusElement=document.getElementById('status');
 function updateModeLabel(){modeElement.textContent=`Terrain: ${MODE_NAMES[modeIndex]}   block = ${blockSize}u`;}
 updateModeLabel();updateFlyLabel();
 const SERVER="https://f0a27720-2b09-4917-b2a4-41cf0a5711b8-00-36wui2grhilpn.picard.replit.dev",PASSWORD="secret",ID=crypto.randomUUID(),NAME="P"+ID.slice(0,4);
@@ -725,7 +795,7 @@ if(host!==isMobHost){isMobHost=host;if(host){mobs.length=0;spawnTimer=0;}}update
 function updateNetLabel(){const n=Object.keys(peers).length;netElement.textContent=`NET: ${n} peer${n===1?'':'s'}   host: ${isMobHost?'YES':'no'}   id: ${ID.slice(0,4)}`;}
 function startPing(peerID){stopPing(peerID);pingTimers[peerID]=setInterval(()=>{const ch=channels[peerID];if(ch?.readyState==="open")try{ch.send(JSON.stringify({type:"ping",id:ID,timestamp:Date.now()}));}catch{}},PING_INTERVAL_MS);}
 function stopPing(peerID){if(pingTimers[peerID]){clearInterval(pingTimers[peerID]);delete pingTimers[peerID];}}
-const worldPacket=()=>JSON.stringify({type:"world",k:TERRAIN.k,p:TERRAIN.p,m:TERRAIN.m,seed:TERRAIN.seed,edits:edits.map(e=>e.slice()),blockSize,modeIndex,gameMode,gameStarted:gameStarted?1:0,editLocked:editLocked?1:0,currentRound,roundTimeLeft:+roundTimeLeft.toFixed(1)});
+const worldPacket=()=>JSON.stringify({type:"world",k:TERRAIN.k,p:TERRAIN.p,m:TERRAIN.m,seed:TERRAIN.seed,edits:edits.map(e=>e.slice()),blockSize,modeIndex,gameMode,gameStarted:gameStarted?1:0,editLocked:editLocked?1:0,currentRound,roundTimeLeft:+roundTimeLeft.toFixed(1),timeOfDay:+timeOfDay.toFixed(2)});
 function sendWorldStateTo(peerID){const ch=channels[peerID];if(ch?.readyState==="open")try{ch.send(worldPacket());}catch{}}
 let worldBroadcastPending=false;const scheduleWorldBroadcast=()=>{worldBroadcastPending=true;};
 function flushWorldBroadcast(){if(!worldBroadcastPending)return;worldBroadcastPending=false;const packet=worldPacket();
@@ -733,6 +803,7 @@ for(const pid in channels){const ch=channels[pid];if(ch?.readyState==="open")try
 function applyWorldState(p){if(typeof p.k==='number')TERRAIN.k=p.k;if(typeof p.p==='number')TERRAIN.p=p.p;if(typeof p.m==='number')TERRAIN.m=p.m;if(typeof p.seed==='number')TERRAIN.seed=p.seed;
 if(typeof p.blockSize==='number')blockSize=p.blockSize;if(typeof p.modeIndex==='number')modeIndex=p.modeIndex;if(typeof p.gameMode==='string')gameMode=p.gameMode;
 if(typeof p.gameStarted==='number')gameStarted=!!p.gameStarted;if(typeof p.editLocked==='number')editLocked=!!p.editLocked;if(typeof p.currentRound==='number')currentRound=p.currentRound;if(typeof p.roundTimeLeft==='number')roundTimeLeft=p.roundTimeLeft;
+if(typeof p.timeOfDay==='number')timeOfDay=p.timeOfDay;
 if(Array.isArray(p.edits)){edits.length=0;for(const e of p.edits)if(Array.isArray(e)&&e.length===4)edits.push(e.slice());if(edits.length>MAX_EDITS)edits.splice(0,edits.length-MAX_EDITS);}
 pushTerrainUniforms();updateModeLabel();syncTerrainSliders();rebuildTreeInstances(true);}
 let lastMobBroadcast=0;const MOB_BROADCAST_INTERVAL=100;
@@ -888,7 +959,7 @@ handleKeyInput();applyGravity(dt);updateHeightmap();
 if(isMobHost){updateMobs(dt);updateSpawning(dt);}
 else{for(const m of mobs){m.x+=(m.targetX-m.x)*.2;m.y+=(m.targetY-m.y)*.2;m.z+=(m.targetZ-m.z)*.2;
 let dy=m.targetYaw-m.yaw;while(dy>Math.PI)dy-=Math.PI*2;while(dy<-Math.PI)dy+=Math.PI*2;m.yaw+=dy*.2;}}
-collidePlayerWithMobs();updateAtmosphere(dt);tickTimer(dt);
+collidePlayerWithMobs();updateDayNight(dt);updateAtmosphere(dt);tickTimer(dt);
 if(gameStarted&&player.alive&&now-player.lastHit>4000)player.hp=Math.min(player.maxHp,player.hp+2*dt);
 updateHpHud();updateWeaponHud();
 if(gameStarted&&mouseDown&&player.alive&&!shopOpen){const w=WEAPON_DEFS[currentWeaponKey];if(w.auto||now-lastShotMs>=w.rateMs)fireWeapon();}
@@ -910,6 +981,9 @@ frameCount++;
 if(now-startTime>=1000){fpsElement.textContent=`FPS: ${((frameCount/(now-startTime))*1000).toFixed(2)}`;frameCount=0;while(now-startTime>=1000)startTime+=1000;}
 const flyers=mobs.reduce((n,m)=>n+(m.flying?1:0),0);let treeTotal=0;for(let t=0;t<TREE_TYPES;t++)treeTotal+=treeTypeCount[t];
 biomeElement.textContent=`Biome: ${currentBiomeName}   mobs: ${mobs.length} (flying: ${flyers})   trees: ${treeTotal}`;
+const hh=Math.floor(timeOfDay),mm=Math.floor((timeOfDay-hh)*60);
+const isNight=SUN_DIR[1]<-0.02;
+timeElement.textContent=`${isNight?'🌙':'☀️'} ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}   Speed: ${TIME_SPEED_NAMES[timeSpeedIndex]}`;
 requestAnimationFrame(animate);}
 (function mobileUI(){const ua=navigator.userAgent||'',isTouchDevice=('ontouchstart'in window)||navigator.maxTouchPoints>0||matchMedia('(pointer: coarse)').matches,isIPhone=/iPhone|iPod/.test(ua),isStandalone=navigator.standalone===true||matchMedia('(display-mode: standalone)').matches||matchMedia('(display-mode: fullscreen)').matches;
 function resizeViewport(){const vv=window.visualViewport,w=Math.max(1,Math.round(vv?vv.width:innerWidth)),h=Math.max(1,Math.round(vv?vv.height:innerHeight));
