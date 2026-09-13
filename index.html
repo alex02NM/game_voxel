@@ -23,6 +23,32 @@
       box-sizing: border-box;
     }
     canvas { display: block; width: 100vw; height: 100dvh; }
+
+    /* ============================================================
+       PSEUDO-FULLSCREEN  (iPhone Safari has no Fullscreen API
+       for arbitrary elements — this locks the page to the viewport)
+       ============================================================ */
+    html.pseudo-fullscreen,
+    html.pseudo-fullscreen body {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    html.pseudo-fullscreen body {
+      /* Canvas already fills 100dvh; keep safe areas for UI overlays only */
+      padding: 0;
+    }
+    html.pseudo-fullscreen #webgl-canvas {
+      width: 100vw;
+      height: 100vh;              /* fallback */
+      height: 100dvh;
+    }
+
     #fps, #mode, #biome {
       position: fixed; left: 8px; color: #0f0;
       font: 14px monospace; z-index: 10;
@@ -309,6 +335,15 @@
       .tbtn.lg { width: 72px; height: 72px; font-size: 26px; }
       .tbtn.sm { width: 50px; height: 50px; font-size: 19px; }
     }
+
+    /* ============================================================
+       REMOVE WORLD PARAMETERS ON MOBILES / TOUCH DEVICES
+       (still active in DOM so slider sync from peers keeps working,
+        it is simply never shown)
+       ============================================================ */
+    @media (max-width: 900px), (pointer: coarse), (hover: none) {
+      #params { display: none !important; }
+    }
   </style>
 </head>
 <body>
@@ -341,7 +376,7 @@
   </div>
 </div>
 
-<!-- ---------- Terrain parameter controls (synced to peers) ---------- -->
+<!-- ---------- Terrain parameter controls (hidden on mobile via CSS) ---------- -->
 <div id="params">
   <h3>World Parameters</h3>
   <label>Amplitude (u_k) <span class="val" id="u_k_val">60.0</span>
@@ -1295,7 +1330,7 @@ function collidePlayerWithMobs() {
 function pushRotBox(out, k, mx, my, mz, cos, sin, ox, oy, oz, hx, hy, hz, r, g, b) {
   const cx = mx + ox * cos - oz * sin;
   const cy = my + oy;
-  const cz = mz + ox * sin + oz * cos;
+  const cz = mx * 0 + mz + ox * sin + oz * cos;
   for (let fi = 0; fi < 6; fi++) {
     const f = BOX_FACES[fi];
     const nx = f[0], ny = f[1], nz = f[2];
@@ -2485,7 +2520,12 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
 
   // ------------------------------------------------------------
   //  FULLSCREEN
+  //  - Desktop / Android / iPadOS 16.4+ : real Fullscreen API
+  //  - iPhone Safari                    : pseudo-fullscreen
+  //  - Installed PWA                    : already fullscreen
   // ------------------------------------------------------------
+  let pseudoFullscreen = false;
+
   function fsElement() {
     return document.fullscreenElement ||
            document.webkitFullscreenElement ||
@@ -2493,20 +2533,47 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
            document.msFullscreenElement || null;
   }
 
+  // iPhone Safari exposes webkitRequestFullscreen but silently ignores it
+  // for non-video elements — treat it as unsupported.
   function fsSupported() {
+    if (isIPhone && !isStandalone) return false;
     const el = document.documentElement;
     return !!(el.requestFullscreen || el.webkitRequestFullscreen ||
               el.mozRequestFullScreen || el.msRequestFullscreen);
   }
 
+  function fsActive() {
+    return !!fsElement() || pseudoFullscreen || isStandalone;
+  }
+
+  function setPseudoFS(on) {
+    if (pseudoFullscreen === on) return;
+    pseudoFullscreen = on;
+    document.documentElement.classList.toggle('pseudo-fullscreen', on);
+    // Let the CSS settle, then re-sync GL viewport / projection.
+    setTimeout(resizeViewport, 60);
+    window.dispatchEvent(new Event('resize'));
+    updateFsBtn();
+  }
+
   function requestFs() {
+    // iPhone Safari: go straight to pseudo-fullscreen.
+    if (!fsSupported()) {
+      setPseudoFS(true);
+      return Promise.resolve(false);
+    }
+
     const el  = document.documentElement;
     const req = el.requestFullscreen || el.webkitRequestFullscreen ||
                 el.mozRequestFullScreen || el.msRequestFullscreen;
-    if (!req) return Promise.reject(new Error('no-api'));
+
     let p;
     try { p = req.call(el, { navigationUI: 'hide' }); }
-    catch (e) { try { p = req.call(el); } catch (e2) { return Promise.reject(e2); } }
+    catch (e) {
+      try { p = req.call(el); }
+      catch (e2) { setPseudoFS(true); return Promise.resolve(false); }
+    }
+
     if (p && typeof p.then === 'function') {
       return p.then(() => {
         try {
@@ -2514,12 +2581,18 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
             screen.orientation.lock('landscape').catch(() => {});
           }
         } catch (e) {}
+        return true;
+      }).catch(() => {
+        // API exists but rejected (or is a no-op that threw) → fallback
+        setPseudoFS(true);
+        return false;
       });
     }
-    return Promise.resolve();
+    return Promise.resolve(true);
   }
 
   function exitFs() {
+    if (pseudoFullscreen) { setPseudoFS(false); return; }
     const exit = document.exitFullscreen || document.webkitExitFullscreen ||
                  document.mozCancelFullScreen || document.msExitFullscreen;
     if (exit) {
@@ -2531,8 +2604,8 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
   }
 
   function toggleFs() {
-    if (fsElement()) exitFs();
-    else requestFs().catch(() => showIOSHint());
+    if (fsElement() || pseudoFullscreen) exitFs();
+    else requestFs().catch(() => {});
   }
 
   // ------------------------------------------------------------
@@ -2545,7 +2618,6 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
     if (!isTouchDevice) return;
     if (!isIPhone) return;
     if (isStandalone) return;
-    if (fsElement()) return;
     if (!force && sessionStorage.getItem(HINT_DISMISS_KEY) === '1') return;
 
     if (hintEl) {
@@ -2576,6 +2648,10 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
     }, 12000);
   }
 
+  // ------------------------------------------------------------
+  //  AUTO-FULLSCREEN ON FIRST USER GESTURE
+  //  (browsers require a gesture; this arms a one-shot listener)
+  // ------------------------------------------------------------
   if (isTouchDevice) {
     let armed = true;
     const armFs = () => {
@@ -2585,14 +2661,16 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
       document.removeEventListener('touchstart',  armFs);
       document.removeEventListener('click',       armFs);
 
-      if (isStandalone || fsElement()) return;
+      if (isStandalone || fsElement() || pseudoFullscreen) return;
 
-      if (fsSupported()) {
-        requestFs().catch(() => {
-          setTimeout(() => showIOSHint(true), 500);
-        });
-      } else if (isIPhone) {
-        setTimeout(() => showIOSHint(true), 500);
+      // Try the real API; if it isn't supported on this platform we
+      // fall straight through to pseudo-fullscreen inside requestFs().
+      requestFs().catch(() => {});
+
+      // Show the "Add to Home Screen" tip once per session on iPhone
+      // so users know how to get a real chrome-free experience.
+      if (isIPhone && !isStandalone) {
+        setTimeout(() => showIOSHint(false), 900);
       }
     };
     document.addEventListener('pointerdown', armFs, { once: true, passive: true });
@@ -2610,7 +2688,7 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
   document.body.appendChild(fsFab);
 
   function updateFsBtn() {
-    const on = !!fsElement() || isStandalone;
+    const on = fsActive();
     fsBtn.textContent = on ? '⛶ Fullscreen: ON' : '⛶ Fullscreen: OFF';
     fsBtn.classList.toggle('on', on);
     fsFab.style.display = (isTouchDevice && !on) ? 'flex' : 'none';
@@ -2797,12 +2875,13 @@ canvas.addEventListener('touchstart', armMusicAutostart, { once: true });
 
   // ------------------------------------------------------------
   //  COLLAPSIBLE PARAMETER PANEL
+  //  (panel itself is hidden via CSS on touch / small screens,
+  //   this only affects desktop users.)
   // ------------------------------------------------------------
   const panel = document.getElementById('params');
   panel.querySelector('h3').addEventListener('click', () => {
     panel.classList.toggle('collapsed');
   });
-  if (isTouchDevice) panel.classList.add('collapsed');
 })();
 </script>
 </body>
