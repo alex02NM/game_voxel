@@ -164,77 +164,6 @@ let screenShake=0, jumpScareCooldown=18+Math.random()*20, ghostTimer=35+Math.ran
 let forestAmbientTimer=20;
 
 let activeBoss=null;
-let bossSpawnQueue=[];
-
-/* ═══════════════════════════════════════════════════════════════
-   REAL AUDIO LOADER — loads and plays real MP3s from the web
-   ═══════════════════════════════════════════════════════════════ */
-const AUDIO_SOURCES={
-  zombieScream:  'https://soundbible.com/mp3/Zombie-In-Pain-Mike_Koenig-1033.mp3',
-  zombieScream2: 'https://soundbible.com/mp3/Zombie-Kill-You-Mike_Koenig-1719975566.mp3',
-  femaleScream:  'https://soundbible.com/mp3/Female-Scream-Horror-NeoPhyTe-1627.mp3',
-  deathScream:   'https://soundbible.com/mp3/Death-Roman_K-1570.mp3',
-  horrorAmbience:'https://soundbible.com/mp3/Horror-Movie-Ambiance-Mike_Koenig-1351.mp3',
-  scaryEerie:    'https://soundbible.com/mp3/Scary-And-Eerie-Mark_DiAngelo-1801.mp3',
-  halloweenVoc:  'https://soundbible.com/mp3/Halloween-Vocals-Mike_Koenig-2080.mp3',
-  forestAmbience:'https://freesound.org/data/previews/64/64314_783757-lq.mp3',
-  owlScary:      'https://orangefreesounds.com/wp-content/uploads/2025/02/scary-owl-sound-effect.mp3',
-  creepyDark:    'https://dev.creazilla.com/media/audio/15482847/creepy-and-dark.mp3'
-};
-const audioCache={};
-function loadAudio(url){
-  if(audioCache[url])return audioCache[url];
-  const a=new Audio(url);
-  a.preload='auto';
-  a.crossOrigin='anonymous';
-  audioCache[url]=a;
-  return a;
-}
-function playRealSound(key, volume=1, loop=false, fadeIn=0){
-  const url=AUDIO_SOURCES[key];
-  if(!url)return null;
-  const a=loadAudio(url);
-  if(!a)return null;
-  try{
-    a.loop=loop;
-    a.volume=Math.max(0,Math.min(1,volume*sfxVolume*2.5));
-    if(fadeIn>0){
-      a.volume=0;
-      a.currentTime=0;
-      a.play().catch(()=>{});
-      const start=performance.now();
-      const f=()=>{
-        const t=(performance.now()-start)/1000;
-        if(t>=fadeIn){a.volume=Math.max(0,Math.min(1,volume*sfxVolume*2.5));return;}
-        a.volume=Math.max(0,Math.min(1,volume*sfxVolume*2.5))*(t/fadeIn);
-        requestAnimationFrame(f);
-      };
-      requestAnimationFrame(f);
-    } else {
-      a.currentTime=0;
-      a.play().catch(()=>{});
-    }
-  }catch(e){}
-  return a;
-}
-function stopRealSound(key){
-  const url=AUDIO_SOURCES[key];
-  if(!url)return;
-  const a=audioCache[url];
-  if(a){try{a.pause();a.currentTime=0;}catch(e){}}
-}
-/* Ambient forest loop handle */
-let forestAmbientHandle=null;
-function startForestAmbient(){
-  if(forestAmbientHandle)return;
-  forestAmbientHandle=playRealSound('forestAmbience',0.35,true,3.0);
-}
-function stopForestAmbient(){
-  if(forestAmbientHandle){
-    try{forestAmbientHandle.pause();forestAmbientHandle.currentTime=0;}catch(e){}
-    forestAmbientHandle=null;
-  }
-}
 
 const COMMON_GLSL=`uniform vec3 u_sunDir,u_sunColor,u_skyTop,u_skyHorizon,u_groundColor;uniform float u_exposure;
 vec3 aces(vec3 x){const float a=2.51,b=0.03,c=2.43,d=0.59,e=0.14;return clamp((x*(a*x+b))/(x*(c*x+d)+e),0.0,1.0);}
@@ -319,7 +248,6 @@ precision highp float;in vec3 v_normal,v_color,v_worldPos;uniform vec3 u_cameraP
 ${COMMON_GLSL}
 void main(){vec3 albedo=pow(max(v_color,0.0),vec3(2.2));vec3 N=normalize(v_normal);vec3 L=normalize(u_sunDir);vec3 V=normalize(u_cameraPosition-v_worldPos);vec3 Hv=normalize(L+V);float wrap=clamp((max(dot(N,L),0.0)+0.22)/1.22,0.0,1.0);vec3 color=albedo*(hemiAmbient(N)*0.80+u_sunColor*wrap*1.05);color+=u_sunColor*pow(max(dot(N,Hv),0.0),20.0)*0.035;float dist=length(v_worldPos-u_cameraPosition);float fog=clamp(1.0-exp(-dist*u_fogDensity),0.0,1.0);color=mix(color,skyColor(-V),fog);outColor=vec4(toSRGB(aces(color*u_exposure)),1.0);}`;
 
-/* ═══ SCARIER POST-PROCESSING ═══ */
 const VS_POST=`#version 300 es
 precision highp float;out vec2 v_uv;
 void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));v_uv=p;gl_Position=vec4(p*2.0-1.0,0.0,1.0);}`;
@@ -431,9 +359,9 @@ const BOX_FACES=[[1,0,0,1,-1,-1,1,-1,1,1,1,1,1,-1,-1,1,1,1,1,1,-1],[-1,0,0,-1,-1
 function makeZombieColor(){const r=.15+Math.random()*.45,g=.25+Math.random()*.40,b=.15+Math.random()*.35;return[r*.9,g,b*.85];}
 
 const BOSS_DEFS={
-  titan:{name:'THE TITAN',hp:3200,speed:0.9,chase:3.2,meleeDmg:42,meleeRange:5.0,color:[0.62,0.06,0.06],bodyScale:3.4,headScale:3.2,armLength:2.4,legLength:1.6,torsoWidth:3.0,slam:true,summon:false,teleport:false,xpValue:600,moneyDrop:900,radius:1.7,deathSound:'titan'},
-  wraith:{name:'THE WRAITH',hp:1500,speed:3.4,chase:9.0,meleeDmg:26,meleeRange:3.4,color:[0.38,0.08,0.58],bodyScale:2.4,headScale:2.2,armLength:1.9,legLength:1.2,torsoWidth:2.0,slam:false,summon:false,teleport:true,xpValue:450,moneyDrop:700,radius:1.1,deathSound:'wraith'},
-  broodmother:{name:'BROODMOTHER',hp:2400,speed:1.4,chase:4.5,meleeDmg:22,meleeRange:4.2,color:[0.70,0.32,0.06],bodyScale:3.0,headScale:2.7,armLength:2.1,legLength:1.5,torsoWidth:2.8,slam:true,summon:true,teleport:false,xpValue:500,moneyDrop:800,radius:1.5,deathSound:'broodmother'}
+  titan:{name:'THE TITAN',hp:3200,speed:0.9,chase:3.2,meleeDmg:42,meleeRange:5.0,color:[0.62,0.06,0.06],bodyScale:3.4,headScale:3.2,armLength:2.4,legLength:1.6,torsoWidth:3.0,slam:true,summon:false,teleport:false,xpValue:600,moneyDrop:900,radius:1.7},
+  wraith:{name:'THE WRAITH',hp:1500,speed:3.4,chase:9.0,meleeDmg:26,meleeRange:3.4,color:[0.38,0.08,0.58],bodyScale:2.4,headScale:2.2,armLength:1.9,legLength:1.2,torsoWidth:2.0,slam:false,summon:false,teleport:true,xpValue:450,moneyDrop:700,radius:1.1},
+  broodmother:{name:'BROODMOTHER',hp:2400,speed:1.4,chase:4.5,meleeDmg:22,meleeRange:4.2,color:[0.70,0.32,0.06],bodyScale:3.0,headScale:2.7,armLength:2.1,legLength:1.5,torsoWidth:2.8,slam:true,summon:true,teleport:false,xpValue:500,moneyDrop:800,radius:1.5}
 };
 const BOSS_ORDER=['titan','wraith','broodmother'];
 
@@ -446,7 +374,6 @@ if(isZombie){const roundMul=gameStarted?(1+(currentRound-1)*.25):1;let sub='walk
 mobs.push({...base,type:'zombie',subType:sub,skin:0,flying:false,y:groundY+.15,radius:.45*(.8+Math.random()*.6)*(isB?1.6:1),speed:isS?1.9:1.2,chase:isS?6.5:(isB?4.2:4.6),bodyScale:isB?1.4+Math.random()*.4:.75+Math.random()*.70,headScale:isB?1.3+Math.random()*.3:.85+Math.random()*.55,armLength:isB?1.2+Math.random()*.4:.60+Math.random()*.80,legLength:.80+Math.random()*.50,torsoWidth:isB?1.3+Math.random()*.3:.75+Math.random()*.55,color:isB?[.6,.1,.1]:(isS?[.8,.6,.1]:makeZombieColor()),hp,maxHp:hp,xpValue:isB?30:(isS?15:10)});}
 else{const flying=Math.random()<.30;mobs.push({...base,type:'animal',skin:Math.floor(Math.random()*ANIMAL_SKINS.length),flying,y:flying?groundY+12+Math.random()*8:groundY+.15,radius:.62,speed:flying?2.2:1.5,chase:flying?5.0:4.2,hoverHeight:10+Math.random()*8,hoverPhase:Math.random()*Math.PI*2,hp:50,maxHp:50,xpValue:5});}}
 
-/* ═══ GHOST — pure psychological scare ═══ */
 function spawnGhost(){
   if(activeBoss)return;
   if(mobs.some(m=>m.isGhost))return;
@@ -464,7 +391,6 @@ function spawnGhost(){
     ghostTimer:4+Math.random()*4
   };
   mobs.push(ghost);
-  playRealSound('scaryEerie',0.5);
 }
 
 function spawnBoss(roundNum){
@@ -492,21 +418,9 @@ function spawnBoss(roundNum){
   mobs.push(boss);
   activeBoss=boss;
   showAnnounce(`⚠  ${def.name}  ⚠`,3000);
-  playRealSound('zombieScream',0.9);
+  playZombieScream(1.0);
   triggerJumpScare(0.7);
-  setTimeout(()=>{if(activeBoss===boss)playLowRumble();},400);
   updateBossHud();
-  if(audioCtx){
-    try{
-      const now=audioCtx.currentTime;
-      const o=audioCtx.createOscillator();o.type='sawtooth';
-      o.frequency.setValueAtTime(140,now);o.frequency.exponentialRampToValueAtTime(28,now+2.2);
-      const g=audioCtx.createGain();
-      g.gain.setValueAtTime(0,now);g.gain.linearRampToValueAtTime(.22,now+.1);
-      g.gain.linearRampToValueAtTime(0,now+2.4);
-      o.connect(g);g.connect(sfxGain);o.start(now);o.stop(now+2.5);
-    }catch{}
-  }
 }
 function updateBossHud(){
   if(!activeBoss){document.getElementById('boss-hud').classList.remove('on');return;}
@@ -548,7 +462,7 @@ if(m.isBoss){
     m.chase=def.chase*(1+(newPhase-1)*0.14);
     m.color=[Math.min(1,def.color[0]*(1+(newPhase-1)*0.18)),def.color[1],Math.min(1,def.color[2]*(1+(newPhase-1)*0.10))];
     showAnnounce(`${def.name} — PHASE ${newPhase}`,1500);
-    playRealSound('zombieScream2',0.8);
+    playZombieScream(0.9);
     triggerJumpScare(0.5);
     if(m===activeBoss)updateBossHud();
   }
@@ -563,7 +477,6 @@ if(m.isBoss){
   if(m.attackTimer<=0&&dist<def.meleeRange&&!playerSafe){
     m.attackTimer=1.6-m.bossPhase*0.15;
     damagePlayer(def.meleeDmg);
-    playTone(120,.15,'sawtooth',.22,60);
   }
   if(def.slam){
     m.slamTimer-=dt;
@@ -571,7 +484,7 @@ if(m.isBoss){
       m.slamTimer=6.5-m.bossPhase*0.6;
       m.slamWindup=0.7;
       showAnnounce('⚠ GROUND SLAM',700);
-      playTone(60,.5,'sawtooth',.28,30);
+      playLowRumble();
     }
     if(m.slamWindup>0){
       m.slamWindup-=dt;
@@ -606,7 +519,7 @@ if(m.isBoss){
         mobs.push(minion);
       }
       showAnnounce('🕷 SPAWNING SWARM',1200);
-      playRealSound('zombieScream',0.6);
+      playZombieScream(0.7);
     }
   }
   if(def.teleport){
@@ -625,7 +538,7 @@ if(m.isBoss){
   const sp=Math.hypot(m.vx,m.vz);if(sp>.12){m.yaw=Math.atan2(m.vx,-m.vz);m.walkPhase+=dt*(1.5+sp*2.0);}
   else m.walkPhase+=dt*.7;
   m.growlTimer-=dt;
-  if(dist<20&&m.growlTimer<=0&&Math.random()<.04){playRealSound('zombieScream',0.7);m.growlTimer=3+Math.random()*3;}
+  if(dist<20&&m.growlTimer<=0&&Math.random()<.05){playZombieScream(0.6);m.growlTimer=3+Math.random()*3;}
   continue;
 }
 
@@ -638,7 +551,7 @@ if(m.flying){const targetY=cachedHeightAt(m.x,m.z)+m.hoverHeight+Math.sin(m.hove
 else{m.vy+=GRAVITY*dt;m.y+=m.vy*dt;const gy=cachedHeightAt(m.x,m.z);if(m.y<=gy){m.y=gy;m.vy=0;}}
 const sp=Math.hypot(m.vx,m.vz);if(sp>.12){m.yaw=Math.atan2(m.vx,-m.vz);m.walkPhase+=dt*(2.0+sp*4.0);}else{m.walkPhase+=dt*.8;}
 if(gameStarted&&m.type==='zombie'&&player.alive){if(dist<1.6&&!inSafeZone(px,pz)){const dmg=(m.subType==='brute'?14:7)*dt;damagePlayer(dmg);}
-m.growlTimer-=dt;if(dist<12&&m.growlTimer<=0&&Math.random()<.03){playRealSound('zombieScream2',0.5);m.growlTimer=4+Math.random()*5;}}}
+m.growlTimer-=dt;if(dist<12&&m.growlTimer<=0&&Math.random()<.04){playZombieScream(0.4);m.growlTimer=4+Math.random()*5;}}}
 for(let i=0;i<mobs.length;i++){for(let j=i+1;j<mobs.length;j++){const a=mobs[i],b=mobs[j];if(a.isBoss||b.isBoss||a.isGhost||b.isGhost)continue;const dx=b.x-a.x,dz=b.z-a.z;const rr=a.radius+b.radius;const d2=dx*dx+dz*dz;
 if(d2<rr*rr&&d2>1e-6){const d=Math.sqrt(d2);const push=(rr-d)*.5;const ux=dx/d,uz=dz/d;a.x-=ux*push;a.z-=uz*push;b.x+=ux*push;b.z+=uz*push;}}}}
 function collidePlayerWithMobs(){for(const m of mobs){if(m.isGhost)continue;const dx=targetPosition[0]-m.x,dz=targetPosition[2]-m.z,dy=targetPosition[1]-m.y,rr=m.radius+PLAYER_RADIUS,d2=dx*dx+dz*dz;
@@ -850,35 +763,428 @@ function updateAtmosphere(dt){
   gl.clearColor(...currentSky,1);pushLightingAll();
 }
 
-let audioCtx=null,sfxGain=null,sfxVolume=.4;
-function initAudioCtx(){if(audioCtx)return;const C=window.AudioContext||window.webkitAudioContext;if(!C)return;audioCtx=new C();sfxGain=audioCtx.createGain();sfxGain.gain.value=sfxVolume;sfxGain.connect(audioCtx.destination);}
-function playTone(freq,dur,type='square',vol=.15,slideTo=null){if(!audioCtx)return;const now=audioCtx.currentTime,o=audioCtx.createOscillator();o.type=type;o.frequency.setValueAtTime(freq,now);if(slideTo)o.frequency.exponentialRampToValueAtTime(slideTo,now+dur);
-const g=audioCtx.createGain();g.gain.setValueAtTime(vol,now);g.gain.exponentialRampToValueAtTime(.001,now+dur);o.connect(g);g.connect(sfxGain);o.start(now);o.stop(now+dur+.02);}
-/* Real zombie scream — uses online MP3 */
-function playZombieScream(vol=1){playRealSound('zombieScream',vol);}
+/* ═══════════════════════════════════════════════════════════════
+   AUDIO ENGINE — 100% Web Audio API procedural synthesis
+   All sounds are generated from math, no external files needed.
+   This GUARANTEES audio works in every browser.
+   ═══════════════════════════════════════════════════════════════ */
+let audioCtx=null,sfxGain=null,sfxVolume=.55;
+function initAudioCtx(){
+  if(audioCtx)return;
+  try{
+    const C=window.AudioContext||window.webkitAudioContext;
+    if(!C)return;
+    audioCtx=new C();
+    sfxGain=audioCtx.createGain();
+    sfxGain.gain.value=sfxVolume;
+    sfxGain.connect(audioCtx.destination);
+  }catch(e){}
+}
+function resumeAudioCtx(){if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume().catch(()=>{});}
+
+/* ── Noise buffer helper (reused for many sounds) ── */
+let _noiseBuf=null;
+function getNoiseBuffer(){
+  if(!audioCtx)return null;
+  if(_noiseBuf)return _noiseBuf;
+  const len=audioCtx.sampleRate*2;
+  const buf=audioCtx.createBuffer(1,len,audioCtx.sampleRate);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=Math.random()*2-1;
+  _noiseBuf=buf;
+  return buf;
+}
+
+/* ── ZOMBIE SCREAM — layered sawtooth + formant filter + noise growl ──
+   Realistic, terrifying, layered. Sounds like a wounded undead. */
+function playZombieScream(vol=1){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  const now=audioCtx.currentTime;
+  const dur=1.1+Math.random()*0.7;
+  const base=70+Math.random()*40;
+
+  /* Layer 1: low growl (sawtooth with pitch down) */
+  const o1=audioCtx.createOscillator();
+  o1.type='sawtooth';
+  o1.frequency.setValueAtTime(base*1.4,now);
+  o1.frequency.exponentialRampToValueAtTime(base*0.6,now+dur*0.7);
+  o1.frequency.exponentialRampToValueAtTime(base*0.35,now+dur);
+
+  /* Layer 2: main vocal formant (higher sawtooth) */
+  const o2=audioCtx.createOscillator();
+  o2.type='sawtooth';
+  o2.frequency.setValueAtTime(base*4.2,now);
+  o2.frequency.exponentialRampToValueAtTime(base*2.1,now+dur*0.5);
+  o2.frequency.exponentialRampToValueAtTime(base*1.6,now+dur);
+
+  /* Layer 3: harmonic screech */
+  const o3=audioCtx.createOscillator();
+  o3.type='square';
+  o3.frequency.setValueAtTime(base*7,now);
+  o3.frequency.exponentialRampToValueAtTime(base*3,now+dur);
+
+  /* Layer 4: throat noise (breath) */
+  const nz=audioCtx.createBufferSource();
+  nz.buffer=getNoiseBuffer();
+  nz.loop=true;
+
+  /* Formant filters — mimic human vocal tract resonances */
+  const f1=audioCtx.createBiquadFilter();f1.type='bandpass';f1.frequency.value=520;f1.Q.value=6;
+  const f2=audioCtx.createBiquadFilter();f2.type='bandpass';f2.frequency.value=1180;f2.Q.value=8;
+  const f3=audioCtx.createBiquadFilter();f3.type='bandpass';f3.frequency.value=2400;f3.Q.value=10;
+
+  /* Lowpass to keep it chesty */
+  const lp=audioCtx.createBiquadFilter();lp.type='lowpass';lp.frequency.setValueAtTime(3200,now);lp.frequency.exponentialRampToValueAtTime(900,now+dur);
+
+  /* Distortion via waveshaper */
+  const ws=audioCtx.createWaveShaper();
+  const curve=new Float32Array(1024);
+  for(let i=0;i<1024;i++){const x=i/512-1;curve[i]=Math.tanh(x*4);}
+  ws.curve=curve;
+
+  /* Amplitude envelope */
+  const env=audioCtx.createGain();
+  env.gain.setValueAtTime(0,now);
+  env.gain.linearRampToValueAtTime(0.42*vol,now+0.05);
+  env.gain.linearRampToValueAtTime(0.30*vol,now+dur*0.4);
+  env.gain.linearRampToValueAtTime(0.10*vol,now+dur*0.8);
+  env.gain.linearRampToValueAtTime(0,now+dur);
+
+  /* Fast tremolo to make it feel like a struggling throat */
+  const trem=audioCtx.createOscillator();trem.type='sine';trem.frequency.value=22+Math.random()*14;
+  const tremGain=audioCtx.createGain();tremGain.gain.value=0.15;
+  trem.connect(tremGain);tremGain.connect(env.gain);
+
+  o1.connect(f1);o2.connect(f2);o3.connect(f3);nz.connect(f1);
+  f1.connect(lp);f2.connect(lp);f3.connect(lp);
+  lp.connect(ws);ws.connect(env);env.connect(sfxGain);
+
+  o1.start(now);o2.start(now);o3.start(now);nz.start(now);trem.start(now);
+  o1.stop(now+dur+.05);o2.stop(now+dur+.05);o3.stop(now+dur+.05);nz.stop(now+dur+.05);trem.stop(now+dur+.05);
+}
+
+/* ── HUMAN SCREAM — piercing, layered for jump scares ── */
+function playHumanScream(vol=1){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  const now=audioCtx.currentTime;
+  const dur=1.2+Math.random()*0.5;
+  const base=900+Math.random()*300;
+
+  /* Layer 1: main scream (sawtooth sliding down) */
+  const o1=audioCtx.createOscillator();o1.type='sawtooth';
+  o1.frequency.setValueAtTime(base*1.6,now);
+  o1.frequency.exponentialRampToValueAtTime(base,now+0.15);
+  o1.frequency.exponentialRampToValueAtTime(base*0.55,now+dur);
+
+  /* Layer 2: piercing harmonic */
+  const o2=audioCtx.createOscillator();o2.type='square';
+  o2.frequency.setValueAtTime(base*2.2,now);
+  o2.frequency.exponentialRampToValueAtTime(base*1.1,now+dur);
+
+  /* Layer 3: breath noise */
+  const nz=audioCtx.createBufferSource();nz.buffer=getNoiseBuffer();nz.loop=true;
+
+  /* Formants — head voice resonances */
+  const f1=audioCtx.createBiquadFilter();f1.type='bandpass';f1.frequency.value=880;f1.Q.value=5;
+  const f2=audioCtx.createBiquadFilter();f2.type='bandpass';f2.frequency.value=2200;f2.Q.value=7;
+  const f3=audioCtx.createBiquadFilter();f3.type='bandpass';f3.frequency.value=3300;f3.Q.value=9;
+
+  /* Vibrato */
+  const vib=audioCtx.createOscillator();vib.type='sine';vib.frequency.value=6.5+Math.random()*2;
+  const vibGain=audioCtx.createGain();vibGain.gain.value=base*0.04;
+  vib.connect(vibGain);vibGain.connect(o1.frequency);
+
+  /* Envelope */
+  const env=audioCtx.createGain();
+  env.gain.setValueAtTime(0,now);
+  env.gain.linearRampToValueAtTime(0.55*vol,now+0.03);
+  env.gain.linearRampToValueAtTime(0.45*vol,now+0.3);
+  env.gain.linearRampToValueAtTime(0.15*vol,now+dur*0.75);
+  env.gain.exponentialRampToValueAtTime(0.001,now+dur);
+
+  o1.connect(f1);o2.connect(f2);nz.connect(f3);
+  f1.connect(env);f2.connect(env);f3.connect(env);
+  env.connect(sfxGain);
+
+  o1.start(now);o2.start(now);nz.start(now);vib.start(now);
+  o1.stop(now+dur+.05);o2.stop(now+dur+.05);nz.stop(now+dur+.05);vib.stop(now+dur+.05);
+}
+
+/* ── JUMP SCARE STING — massive layered scream + sub thump ── */
+function playJumpScareSting(vol=1){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  playHumanScream(vol);
+  const now=audioCtx.currentTime;
+  /* Sub bass thump */
+  const o=audioCtx.createOscillator();o.type='sine';
+  o.frequency.setValueAtTime(180,now);
+  o.frequency.exponentialRampToValueAtTime(28,now+0.4);
+  const g=audioCtx.createGain();
+  g.gain.setValueAtTime(0.65*vol,now);
+  g.gain.exponentialRampToValueAtTime(0.001,now+0.55);
+  o.connect(g);g.connect(sfxGain);
+  o.start(now);o.stop(now+0.6);
+  /* High shriek burst */
+  const o2=audioCtx.createOscillator();o2.type='sawtooth';
+  o2.frequency.setValueAtTime(3200,now);
+  o2.frequency.exponentialRampToValueAtTime(600,now+0.35);
+  const f2=audioCtx.createBiquadFilter();f2.type='highpass';f2.frequency.value=1400;
+  const g2=audioCtx.createGain();g2.gain.setValueAtTime(0.28*vol,now);g2.gain.exponentialRampToValueAtTime(0.001,now+0.4);
+  o2.connect(f2);f2.connect(g2);g2.connect(sfxGain);o2.start(now);o2.stop(now+0.45);
+}
+
+/* ── HEARTBEAT — rhythmic sub-bass double thump ── */
+function playHeartbeat(intensity){
+  if(!audioCtx)return;
+  const now=audioCtx.currentTime;
+  for(let i=0;i<2;i++){
+    const t0=now+i*0.14;
+    const o=audioCtx.createOscillator();o.type='sine';
+    o.frequency.setValueAtTime(62-intensity*12,t0);
+    o.frequency.exponentialRampToValueAtTime(26,t0+0.11);
+    const g=audioCtx.createGain();
+    g.gain.setValueAtTime(0,t0);
+    g.gain.linearRampToValueAtTime(0.28*intensity,t0+0.012);
+    g.gain.exponentialRampToValueAtTime(0.001,t0+0.14);
+    o.connect(g);g.connect(sfxGain);o.start(t0);o.stop(t0+0.17);
+  }
+}
+
+/* ── LOW RUMBLE — deep ominous drone ── */
+function playLowRumble(){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  const now=audioCtx.currentTime,dur=3.5+Math.random()*2;
+  const o1=audioCtx.createOscillator();o1.type='sine';
+  o1.frequency.setValueAtTime(24+Math.random()*6,now);
+  o1.frequency.linearRampToValueAtTime(30+Math.random()*8,now+dur);
+  const o2=audioCtx.createOscillator();o2.type='sine';
+  o2.frequency.setValueAtTime(36+Math.random()*6,now);
+  const nz=audioCtx.createBufferSource();nz.buffer=getNoiseBuffer();nz.loop=true;
+  const f=audioCtx.createBiquadFilter();f.type='lowpass';f.frequency.value=120;f.Q.value=3;
+  const g=audioCtx.createGain();
+  g.gain.setValueAtTime(0,now);
+  g.gain.linearRampToValueAtTime(0.10,now+dur*0.35);
+  g.gain.linearRampToValueAtTime(0,now+dur);
+  o1.connect(g);o2.connect(g);nz.connect(f);f.connect(g);g.connect(sfxGain);
+  o1.start(now);o2.start(now);nz.start(now);
+  o1.stop(now+dur);o2.stop(now+dur);nz.stop(now+dur);
+}
+
+/* ── DISTANT SCREAM — muffled wail far away ── */
+function playDistantScream(){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  const now=audioCtx.currentTime,dur=1.8+Math.random()*1.5;
+  const o=audioCtx.createOscillator();o.type='sawtooth';
+  const base=180+Math.random()*60;
+  o.frequency.setValueAtTime(base,now);
+  o.frequency.exponentialRampToValueAtTime(base*0.7,now+dur*0.6);
+  o.frequency.exponentialRampToValueAtTime(base*0.45,now+dur);
+  const f=audioCtx.createBiquadFilter();f.type='lowpass';f.frequency.value=550;f.Q.value=2.5;
+  const g=audioCtx.createGain();
+  g.gain.setValueAtTime(0,now);
+  g.gain.linearRampToValueAtTime(0.08,now+dur*0.3);
+  g.gain.linearRampToValueAtTime(0,now+dur);
+  o.connect(f);f.connect(g);g.connect(sfxGain);
+  o.start(now);o.stop(now+dur);
+}
+
+/* ── WHISPER — filtered noise that sounds like a voice ── */
+function playWhisper(insanity){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  const now=audioCtx.currentTime,dur=1.0+Math.random()*0.8;
+  const nz=audioCtx.createBufferSource();nz.buffer=getNoiseBuffer();nz.loop=true;
+  /* Formant-modulated bandpass = sounds like whispered vowels */
+  const f=audioCtx.createBiquadFilter();f.type='bandpass';
+  f.frequency.value=900+Math.random()*800;f.Q.value=14;
+  /* LFO on frequency to simulate syllables */
+  const lfo=audioCtx.createOscillator();lfo.type='sine';lfo.frequency.value=3+Math.random()*3;
+  const lfoGain=audioCtx.createGain();lfoGain.gain.value=400;
+  lfo.connect(lfoGain);lfoGain.connect(f.frequency);
+  const env=audioCtx.createGain();
+  const vol=0.06+insanity*0.06;
+  env.gain.setValueAtTime(0,now);
+  env.gain.linearRampToValueAtTime(vol,now+dur*0.35);
+  env.gain.linearRampToValueAtTime(vol*0.6,now+dur*0.7);
+  env.gain.linearRampToValueAtTime(0,now+dur);
+  nz.connect(f);f.connect(env);env.connect(sfxGain);
+  nz.start(now);nz.stop(now+dur);lfo.start(now);lfo.stop(now+dur);
+}
+
+/* ── BREATHING — filtered noise with breath-like envelope ── */
+function playBreathing(){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  const now=audioCtx.currentTime,dur=1.6;
+  const nz=audioCtx.createBufferSource();nz.buffer=getNoiseBuffer();nz.loop=true;
+  const f=audioCtx.createBiquadFilter();f.type='bandpass';f.frequency.value=420;f.Q.value=1.4;
+  const env=audioCtx.createGain();
+  /* Two-breath envelope: inhale, exhale */
+  env.gain.setValueAtTime(0,now);
+  env.gain.linearRampToValueAtTime(0.09,now+0.35);
+  env.gain.linearRampToValueAtTime(0.02,now+0.75);
+  env.gain.linearRampToValueAtTime(0.07,now+1.05);
+  env.gain.linearRampToValueAtTime(0,now+dur);
+  nz.connect(f);f.connect(env);env.connect(sfxGain);
+  nz.start(now);nz.stop(now+dur);
+}
+
+/* ── SCREECH — high-pitched creature shriek ── */
+function playScreech(vol=1){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  const now=audioCtx.currentTime,dur=0.55+Math.random()*0.35;
+  const o=audioCtx.createOscillator();o.type='sawtooth';
+  o.frequency.setValueAtTime(2200+Math.random()*800,now);
+  o.frequency.exponentialRampToValueAtTime(320,now+dur);
+  const f=audioCtx.createBiquadFilter();f.type='highpass';f.frequency.value=600;f.Q.value=3;
+  const g=audioCtx.createGain();
+  g.gain.setValueAtTime(0,now);
+  g.gain.linearRampToValueAtTime(0.22*vol,now+0.02);
+  g.gain.linearRampToValueAtTime(0.10*vol,now+dur*0.5);
+  g.gain.linearRampToValueAtTime(0,now+dur);
+  o.connect(f);f.connect(g);g.connect(sfxGain);
+  o.start(now);o.stop(now+dur);
+}
+
+/* ── DRAG — heavy body dragged on ground ── */
+function playDrag(){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  const now=audioCtx.currentTime,dur=1.8+Math.random()*1.2;
+  const nz=audioCtx.createBufferSource();nz.buffer=getNoiseBuffer();nz.loop=true;
+  const f=audioCtx.createBiquadFilter();f.type='lowpass';f.frequency.value=240;f.Q.value=5;
+  /* Slow LFO gives dragging momentum */
+  const lfo=audioCtx.createOscillator();lfo.type='sine';lfo.frequency.value=0.9;
+  const lfoGain=audioCtx.createGain();lfoGain.gain.value=0.4;
+  const env=audioCtx.createGain();
+  env.gain.setValueAtTime(0,now);
+  env.gain.linearRampToValueAtTime(0.10,now+0.2);
+  env.gain.linearRampToValueAtTime(0.06,now+dur*0.5);
+  env.gain.linearRampToValueAtTime(0,now+dur);
+  lfo.connect(lfoGain);lfoGain.connect(env.gain);
+  nz.connect(f);f.connect(env);env.connect(sfxGain);
+  nz.start(now);nz.stop(now+dur);lfo.start(now);lfo.stop(now+dur);
+}
+
+/* ── CHILD LAUGH — creepy rising giggles ── */
+function playChildLaugh(){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  const now=audioCtx.currentTime;
+  for(let i=0;i<7;i++){
+    const t0=now+i*0.14+Math.random()*0.02;
+    const o=audioCtx.createOscillator();o.type='triangle';
+    const f=640+Math.random()*240+i*25;
+    o.frequency.setValueAtTime(f,t0);
+    o.frequency.exponentialRampToValueAtTime(f*0.65,t0+0.10);
+    const vib=audioCtx.createOscillator();vib.type='sine';vib.frequency.value=30;
+    const vibG=audioCtx.createGain();vibG.gain.value=30;
+    vib.connect(vibG);vibG.connect(o.frequency);
+    const g=audioCtx.createGain();
+    g.gain.setValueAtTime(0,t0);
+    g.gain.linearRampToValueAtTime(0.10,t0+0.02);
+    g.gain.exponentialRampToValueAtTime(0.001,t0+0.12);
+    o.connect(g);g.connect(sfxGain);
+    o.start(t0);o.stop(t0+0.14);vib.start(t0);vib.stop(t0+0.14);
+  }
+}
+
+/* ── MUSIC BOX — faint detuned bell notes ── */
+function playMusicBox(){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  const now=audioCtx.currentTime;
+  const scale=[880,987,1046.5,1174.7,1318.5];
+  const f=scale[(Math.random()*scale.length)|0];
+  const o1=audioCtx.createOscillator();o1.type='triangle';o1.frequency.value=f;
+  const o2=audioCtx.createOscillator();o2.type='sine';o2.frequency.value=f*2.01;
+  const g1=audioCtx.createGain();
+  g1.gain.setValueAtTime(0,now);
+  g1.gain.linearRampToValueAtTime(0.12,now+0.02);
+  g1.gain.exponentialRampToValueAtTime(0.001,now+1.5);
+  const g2=audioCtx.createGain();
+  g2.gain.setValueAtTime(0,now);
+  g2.gain.linearRampToValueAtTime(0.05,now+0.02);
+  g2.gain.exponentialRampToValueAtTime(0.001,now+1.0);
+  o1.connect(g1);g1.connect(sfxGain);
+  o2.connect(g2);g2.connect(sfxGain);
+  o1.start(now);o1.stop(now+1.6);o2.start(now);o2.stop(now+1.2);
+}
+
+/* ── OWL HOOT — for forest ambience ── */
+function playOwlHoot(){
+  if(!audioCtx)return;
+  resumeAudioCtx();
+  const now=audioCtx.currentTime;
+  const o=audioCtx.createOscillator();o.type='sine';
+  o.frequency.setValueAtTime(340,now);
+  o.frequency.linearRampToValueAtTime(300,now+0.25);
+  o.frequency.linearRampToValueAtTime(320,now+0.5);
+  o.frequency.linearRampToValueAtTime(280,now+0.9);
+  const g=audioCtx.createGain();
+  g.gain.setValueAtTime(0,now);
+  g.gain.linearRampToValueAtTime(0.13,now+0.08);
+  g.gain.linearRampToValueAtTime(0.10,now+0.5);
+  g.gain.linearRampToValueAtTime(0,now+1.0);
+  o.connect(g);g.connect(sfxGain);
+  o.start(now);o.stop(now+1.05);
+}
+
+/* ── FOREST AMBIENCE — continuous drone + occasional wind ── */
+let forestAmbientHandle=null;
+function startForestAmbient(){
+  if(!audioCtx||forestAmbientHandle)return;
+  const now=audioCtx.currentTime;
+  const nodes=[];
+  /* Continuous low drone */
+  const o1=audioCtx.createOscillator();o1.type='sine';o1.frequency.value=42;
+  const o2=audioCtx.createOscillator();o2.type='sine';o2.frequency.value=58;
+  const g1=audioCtx.createGain();g1.gain.value=0.05;
+  o1.connect(g1);o2.connect(g1);g1.connect(sfxGain);
+  o1.start(now);o2.start(now);
+  nodes.push(o1,o2);
+  /* Wind noise */
+  const nz=audioCtx.createBufferSource();nz.buffer=getNoiseBuffer();nz.loop=true;
+  const f=audioCtx.createBiquadFilter();f.type='lowpass';f.frequency.value=380;
+  const g2=audioCtx.createGain();g2.gain.value=0.018;
+  /* Slow LFO for wind breathing */
+  const lfo=audioCtx.createOscillator();lfo.type='sine';lfo.frequency.value=0.08;
+  const lfoG=audioCtx.createGain();lfoG.gain.value=0.012;
+  lfo.connect(lfoG);lfoG.connect(g2.gain);
+  nz.connect(f);f.connect(g2);g2.connect(sfxGain);
+  nz.start(now);lfo.start(now);
+  nodes.push(nz,lfo);
+  forestAmbientHandle={nodes};
+}
+function stopForestAmbient(){
+  if(!forestAmbientHandle)return;
+  const now=audioCtx.currentTime;
+  try{
+    for(const n of forestAmbientHandle.nodes){try{n.stop(now+0.5);}catch(e){n.stop&&n.stop();}}
+  }catch(e){}
+  forestAmbientHandle=null;
+}
+
+/* ── Gun sound ── */
 function playGunSound(w){if(!audioCtx)return;const now=audioCtx.currentTime,o=audioCtx.createOscillator();o.type='square';
 const base=w.name==='Sniper'?120:(w.name==='Minigun'?180:240);o.frequency.setValueAtTime(base,now);o.frequency.exponentialRampToValueAtTime(35,now+.09);
 const g=audioCtx.createGain();g.gain.setValueAtTime(w.name==='Sniper'?.35:.18,now);g.gain.exponentialRampToValueAtTime(.005,now+.11);o.connect(g);g.connect(sfxGain);o.start(now);o.stop(now+.13);}
 
-/* ═══ SCARY SOUNDS — real MP3 files ═══ */
-function playJumpScareSting(vol=1){
-  playRealSound('femaleScream',vol);
-  if(audioCtx){
-    const now=audioCtx.currentTime;
-    const o=audioCtx.createOscillator();o.type='sine';
-    o.frequency.setValueAtTime(140,now);o.frequency.exponentialRampToValueAtTime(28,now+0.35);
-    const g2=audioCtx.createGain();g2.gain.setValueAtTime(0.45*vol,now);g2.gain.exponentialRampToValueAtTime(0.001,now+0.45);
-    o.connect(g2);g2.connect(sfxGain);o.start(now);o.stop(now+0.5);
-  }
+/* ── Simple UI tone ── */
+function playTone(freq,dur,type='square',vol=.15,slideTo=null){
+  if(!audioCtx)return;
+  const now=audioCtx.currentTime,o=audioCtx.createOscillator();
+  o.type=type;o.frequency.setValueAtTime(freq,now);
+  if(slideTo)o.frequency.exponentialRampToValueAtTime(slideTo,now+dur);
+  const g=audioCtx.createGain();g.gain.setValueAtTime(vol,now);g.gain.exponentialRampToValueAtTime(.001,now+dur);
+  o.connect(g);g.connect(sfxGain);o.start(now);o.stop(now+dur+.02);
 }
-function playScreech(vol=1){playRealSound('femaleScream',vol*0.7);}
-function playDistantScream(){playRealSound('deathScream',0.5);}
-function playChildLaugh(){playRealSound('halloweenVoc',0.4);}
-function playMusicBox(){playRealSound('creepyDark',0.6);}
-function playBreathing(){playRealSound('horrorAmbience',0.5);}
-function playDrag(){playRealSound('creepyDark',0.4);}
-function playWhisper(insanity){playRealSound('scaryEerie',0.3+insanity*0.3);}
-function playLowRumble(){playRealSound('horrorAmbience',0.4);}
 
 /* ═══ HORROR SYSTEMS ═══ */
 const SCARE_WORDS=['BEHIND YOU','DON\'T TURN','IT SEES YOU','RUN.','LOOK','NO','SMILE','WATCH','UNDER','CLOSER','MINE','STAY'];
@@ -894,7 +1200,6 @@ function triggerJumpScare(intensity=1){
   whisperEl.textContent=SCARE_WORDS[(Math.random()*SCARE_WORDS.length)|0];
   whisperEl.classList.add('on','scare');
   setTimeout(()=>whisperEl.classList.remove('on','scare'),1200);
-  if(Math.random()<0.35){setTimeout(()=>playScreech(0.6),120);}
 }
 
 function updateSanity(dt){
@@ -938,20 +1243,6 @@ function updateDynamicFog(dt){
   const target=0.0012*(1+(1-daylight)*2.8)*(1+(1-sanity)*1.2);
   FOG_DENSITY+=(target-FOG_DENSITY)*(1-Math.exp(-dt*1.5));
 }
-function playHeartbeat(intensity){
-  if(!audioCtx)return;
-  const now=audioCtx.currentTime;
-  for(let i=0;i<2;i++){
-    const t0=now+i*0.13;
-    const o=audioCtx.createOscillator();o.type='sine';
-    o.frequency.setValueAtTime(58-intensity*10,t0);
-    o.frequency.exponentialRampToValueAtTime(28,t0+0.10);
-    const g=audioCtx.createGain();
-    g.gain.setValueAtTime(0,t0);g.gain.linearRampToValueAtTime(0.20*intensity,t0+0.015);
-    g.gain.exponentialRampToValueAtTime(0.001,t0+0.13);
-    o.connect(g);g.connect(sfxGain);o.start(t0);o.stop(t0+0.16);
-  }
-}
 function updateHeartbeat(dt){
   if(!audioCtx)return;
   const intensity=Math.max(dangerLevel,(1-sanity)*0.85);
@@ -970,7 +1261,6 @@ function updateHorrorAmbience(dt){
   forestAmbientTimer-=dt;
   const ins=1-sanity;
   const dangerMobNear=dangerLevel>0.25;
-  /* whisper text overlay */
   if(whisperTimer<=0){
     whisperTimer=10+Math.random()*18-ins*6;
     if((ins)>0.25||dangerLevel>0.30){
@@ -980,18 +1270,15 @@ function updateHorrorAmbience(dt){
       playWhisper(ins);
     }
   }
-  /* breathing near */
   const now=performance.now();
   if(dangerMobNear&&now-lastBreathingTime>1500+Math.random()*2500){
     lastBreathingTime=now;
     playBreathing();
   }
-  /* ghost spawning */
   if(ghostTimer<=0&&gameStarted&&player.alive){
     ghostTimer=45+Math.random()*50-ins*25;
     if(Math.random()<0.45+ins*0.4)spawnGhost();
   }
-  /* random jump scare */
   if(jumpScareCooldown<=0&&gameStarted&&player.alive){
     const baseChance=0.025+ins*0.10+dangerLevel*0.06;
     if(Math.random()<baseChance){
@@ -999,7 +1286,6 @@ function updateHorrorAmbience(dt){
       triggerJumpScare(0.75+ins*0.25);
     }
   }
-  /* ambient horror cues — real MP3 sounds */
   if(ambientHorrorTimer>0)return;
   ambientHorrorTimer=8+Math.random()*16-ins*5;
   const r=Math.random();
@@ -1010,14 +1296,13 @@ function updateHorrorAmbience(dt){
   else if(r<0.86)playChildLaugh();
   else if(r<0.94)playMusicBox();
   else playLowRumble();
-  /* forest ambient random sounds */
   if(forestAmbientTimer<=0){
     forestAmbientTimer=25+Math.random()*40;
     if(!inSafeZone(targetPosition[0],targetPosition[2])){
       const fr=Math.random();
-      if(fr<0.3)playRealSound('owlScary',0.5);
-      else if(fr<0.6)playRealSound('creepyDark',0.4);
-      else playRealSound('scaryEerie',0.35);
+      if(fr<0.35)playOwlHoot();
+      else if(fr<0.65)playScreech(0.4);
+      else playLowRumble();
     }
   }
 }
@@ -1056,7 +1341,7 @@ function damageZombie(mob,dmg,credit=true){
     markRecentlyKilled(mob.id);
     if(mob.isBoss){
       showAnnounce(`${mob.bossName} DEFEATED`,3000);
-      playRealSound('zombieScream',1.0);
+      playZombieScream(1.0);
       setTimeout(()=>playLowRumble(),300);
       setTimeout(()=>playTone(660,.6,'sine',.3,220),600);
       if(activeBoss===mob){activeBoss=null;updateBossHud();}
@@ -1075,13 +1360,11 @@ function damageZombie(mob,dmg,credit=true){
   }
 }
 
-/* ═══ DEATH: reset filter, lose all guns, teleport to safe zone ═══ */
 function playerDie(){
   if(!player.alive)return;
   player.alive=false;
   showAnnounce('YOU DIED',2500);
   triggerJumpScare(1.0);
-  playRealSound('deathScream',1.0);
   damageFlashAmount=1.0;
   screenShake=2.0;
   setTimeout(()=>playLowRumble(),250);
@@ -1141,17 +1424,18 @@ const GAME_MODES=[{id:'freeroam',name:'Free Roam',desc:'Sandbox. All editing fea
 function showModeSelect(){modeListEl.innerHTML='';
 for(const m of GAME_MODES){const b=document.createElement('button');b.innerHTML=`<b>${m.name}</b><br><small>${m.desc}</small>`;b.onclick=()=>startGameMode(m.id);modeListEl.appendChild(b);}
 modeSelectEl.style.display='block';}
-function startGameMode(mode){gameMode=mode;modeSelectEl.style.display='none';initAudioCtx();
-if(mode==='freeroam'){gameStarted=false;editLocked=false;timerEl.textContent='FREE ROAM';timerEl.classList.remove('low');roundNumEl.textContent='';
-['hp-hud','weapon-hud','money-hud','xp-hud'].forEach(id=>document.getElementById(id).classList.remove('on'));shopBtn.classList.remove('on');
-document.getElementById('boss-hud').classList.remove('on');activeBoss=null;return;}
-gameStarted=true;editLocked=true;flightMode=false;updateFlyLabel();
-if(mode==='horde'){MAX_MOBS=60;}else{MAX_MOBS=28;}
-if(mode==='sniper'){unlockedWeapons.clear();unlockedWeapons.add('sniper');currentWeaponKey='sniper';const w=WEAPON_DEFS.sniper;w.magCur=w.mag;w.ammoCur=w.ammo;}
-['hp-hud','weapon-hud','money-hud','xp-hud'].forEach(id=>document.getElementById(id).classList.add('on'));shopBtn.classList.add('on');
-player.hp=player.maxHp;player.money=500;player.xp=0;player.level=1;updateHpHud();updateMoneyHud();updateWeaponHud();startRound(1);showAnnounce('SURVIVE!',1500);
-/* start forest ambient loop */
-startForestAmbient();
+function startGameMode(mode){
+  gameMode=mode;modeSelectEl.style.display='none';
+  initAudioCtx();resumeAudioCtx();
+  if(mode==='freeroam'){gameStarted=false;editLocked=false;timerEl.textContent='FREE ROAM';timerEl.classList.remove('low');roundNumEl.textContent='';
+  ['hp-hud','weapon-hud','money-hud','xp-hud'].forEach(id=>document.getElementById(id).classList.remove('on'));shopBtn.classList.remove('on');
+  document.getElementById('boss-hud').classList.remove('on');activeBoss=null;return;}
+  gameStarted=true;editLocked=true;flightMode=false;updateFlyLabel();
+  if(mode==='horde'){MAX_MOBS=60;}else{MAX_MOBS=28;}
+  if(mode==='sniper'){unlockedWeapons.clear();unlockedWeapons.add('sniper');currentWeaponKey='sniper';const w=WEAPON_DEFS.sniper;w.magCur=w.mag;w.ammoCur=w.ammo;}
+  ['hp-hud','weapon-hud','money-hud','xp-hud'].forEach(id=>document.getElementById(id).classList.add('on'));shopBtn.classList.add('on');
+  player.hp=player.maxHp;player.money=500;player.xp=0;player.level=1;updateHpHud();updateMoneyHud();updateWeaponHud();startRound(1);showAnnounce('SURVIVE!',1500);
+  startForestAmbient();
 }
 function startRound(n){currentRound=n;roundTimeLeft=ROUND_SECONDS;matchRunning=true;showAnnounce(`ROUND ${n}`,1500);roundNumEl.textContent=`ROUND ${n}`;playTone(440,.25,'sine',.25);
 if(n%5===0){setTimeout(()=>spawnBoss(n),2000);}}
@@ -1174,13 +1458,13 @@ case'b':case'B':if(gameStarted)toggleShop();break;
 case'1':if(gameStarted)switchWeapon('pistol');break;case'2':if(gameStarted)switchWeapon('smg');break;case'3':if(gameStarted)switchWeapon('shotgun');break;case'4':if(gameStarted)switchWeapon('rifle');break;case'5':if(gameStarted)switchWeapon('sniper');break;case'6':if(gameStarted)switchWeapon('minigun');break;
 case'Escape':document.exitPointerLock?.();break;}});
 function updateFlyLabel(){document.getElementById('fly').textContent=flightMode?'FLIGHT: ON  (F to toggle)':'';}
-canvas.addEventListener('touchstart',e=>{if(lookTouchId===null&&e.changedTouches.length){const t=e.changedTouches[0];lookTouchId=t.identifier;touchStartX=t.clientX;touchStartY=t.clientY;}e.preventDefault();},{passive:false});
+canvas.addEventListener('touchstart',e=>{if(lookTouchId===null&&e.changedTouches.length){const t=e.changedTouches[0];lookTouchId=t.identifier;touchStartX=t.clientX;touchStartY=t.clientY;}e.preventDefault();initAudioCtx();resumeAudioCtx();},{passive:false});
 let touchStartX=0,touchStartY=0;
 canvas.addEventListener('touchmove',e=>{for(const t of e.changedTouches){if(t.identifier!==lookTouchId)continue;mouseX+=(t.clientX-touchStartX)*.005;mouseY-=(t.clientY-touchStartY)*.005;mouseY=Math.max(-Math.PI/2,Math.min(Math.PI/2,mouseY));touchStartX=t.clientX;touchStartY=t.clientY;}e.preventDefault();},{passive:false});
 const endLookTouch=e=>{for(const t of e.changedTouches)if(t.identifier===lookTouchId)lookTouchId=null;};
 canvas.addEventListener('touchend',endLookTouch,{passive:false});canvas.addEventListener('touchcancel',endLookTouch,{passive:false});
 function handleMouseMove(e){mouseX+=(e.movementX||0)*.002;mouseY-=(e.movementY||0)*.002;mouseY=Math.max(-Math.PI/2,Math.min(Math.PI/2,mouseY));}
-canvas.addEventListener('click',()=>{if(matchMedia('(pointer: coarse)').matches)return;canvas.requestPointerLock?.();});
+canvas.addEventListener('click',()=>{initAudioCtx();resumeAudioCtx();if(matchMedia('(pointer: coarse)').matches)return;canvas.requestPointerLock?.();});
 document.addEventListener('pointerlockchange',()=>{if(document.pointerLockElement===canvas)addEventListener('mousemove',handleMouseMove);else removeEventListener('mousemove',handleMouseMove);});
 function handleKeyInput(){const forward=[-modelViewMatrix[2],-modelViewMatrix[6],-modelViewMatrix[10]],right=[modelViewMatrix[0],modelViewMatrix[4],modelViewMatrix[8]];
 if(!flightMode){forward[1]=0;right[1]=0;}vec3.normalize(forward,forward);vec3.normalize(right,right);
@@ -1331,17 +1615,19 @@ labels.u_k.textContent=TERRAIN.k.toFixed(1);labels.u_p.textContent=TERRAIN.p.toF
 function onSliderInput(){if(editLocked)return;TERRAIN.k=parseFloat(sliders.u_k.value);TERRAIN.p=parseFloat(sliders.u_p.value);TERRAIN.m=parseFloat(sliders.u_m.value);TERRAIN.seed=parseFloat(sliders.u_S_seed.value);
 syncTerrainSliders();pushTerrainUniforms();scheduleWorldBroadcast();rebuildTreeInstances(true);}
 for(const el of Object.values(sliders))el.addEventListener('input',onSliderInput);syncTerrainSliders();
+
+/* ═══ MUSIC — ambient drone layer using Web Audio ═══ */
 const music={ctx:null,master:null,reverb:null,drones:[],running:false,noteTimer:null,volume:.5};
 const NOTE_POOL=[174.61,196,220,246.94,261.63,293.66,329.63,392,440,523.25,587.33,659.25];
 function makeImpulseResponse(ctx,seconds,decay){const len=Math.floor(ctx.sampleRate*seconds),buf=ctx.createBuffer(2,len,ctx.sampleRate);
 for(let ch=0;ch<2;ch++){const d=buf.getChannelData(ch);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay);}return buf;}
-function initAudio(){if(music.ctx)return;const Ctx=window.AudioContext||window.webkitAudioContext;music.ctx=new Ctx();
+function initAudioMusic(){if(music.ctx)return;const Ctx=window.AudioContext||window.webkitAudioContext;music.ctx=new Ctx();
 music.master=music.ctx.createGain();music.master.gain.value=0;music.master.connect(music.ctx.destination);
 const convolver=music.ctx.createConvolver();convolver.buffer=makeImpulseResponse(music.ctx,6,2.8);
-const wet=music.ctx.createGain();wet.gain.value=.65;convolver.connect(wet);wet.connect(music.master);music.reverb=convolver;}
+const wet=music.ctx.createGain();wet.gain.value=.55;convolver.connect(wet);wet.connect(music.master);music.reverb=convolver;}
 function startDrones(){const ctx=music.ctx;for(const freq of[55,110,164.81,220]){const osc=ctx.createOscillator();osc.type='sine';osc.frequency.value=freq;
-const gain=ctx.createGain();gain.gain.value=.09;
-const ampLfo=ctx.createOscillator();ampLfo.frequency.value=.05+Math.random()*.09;const ampLfoGain=ctx.createGain();ampLfoGain.gain.value=.05;
+const gain=ctx.createGain();gain.gain.value=.07;
+const ampLfo=ctx.createOscillator();ampLfo.frequency.value=.05+Math.random()*.09;const ampLfoGain=ctx.createGain();ampLfoGain.gain.value=.04;
 ampLfo.connect(ampLfoGain);ampLfoGain.connect(gain.gain);
 const detuneLfo=ctx.createOscillator();detuneLfo.frequency.value=.07+Math.random()*.05;const detuneGain=ctx.createGain();detuneGain.gain.value=6;
 detuneLfo.connect(detuneGain);detuneGain.connect(osc.detune);
@@ -1361,7 +1647,7 @@ gain2.gain.setValueAtTime(0,now);gain2.gain.linearRampToValueAtTime(peak*.28,now
 osc.connect(gain);gain.connect(music.master);gain.connect(music.reverb);
 osc2.connect(gain2);gain2.connect(music.master);gain2.connect(music.reverb);
 const tEnd=now+attack+hold+release+.15;osc.start(now);osc.stop(tEnd);osc2.start(now);osc2.stop(tEnd);}
-function startAmbientMusic(){initAudio();if(music.ctx.state==='suspended')music.ctx.resume();if(music.running)return;music.running=true;startDrones();scheduleNextNote();
+function startAmbientMusic(){initAudioMusic();if(music.ctx.state==='suspended')music.ctx.resume();if(music.running)return;music.running=true;startDrones();scheduleNextNote();
 const t=music.ctx.currentTime;music.master.gain.cancelScheduledValues(t);music.master.gain.setValueAtTime(music.master.gain.value,t);music.master.gain.linearRampToValueAtTime(music.volume>.001?music.volume:0,t+2.5);}
 function stopAmbientMusic(){if(!music.running)return;music.running=false;clearTimeout(music.noteTimer);music.noteTimer=null;
 if(music.ctx){const t=music.ctx.currentTime;music.master.gain.cancelScheduledValues(t);music.master.gain.setValueAtTime(music.master.gain.value,t);music.master.gain.linearRampToValueAtTime(0,t+1.5);
@@ -1373,9 +1659,17 @@ music.volume=parseFloat(musicVolSlider.value)/100;musicVolLabel.textContent=Math
 musicVolSlider.addEventListener('input',applyMusicVolume);
 function updateMusicBtn(){musicBtn.textContent=music.running?'🔊 Ambient Music: ON':'🔊 Ambient Music: OFF';musicBtn.classList.toggle('on',music.running);}
 updateMusicBtn();musicBtn.addEventListener('click',()=>{music.running?stopAmbientMusic():startAmbientMusic();updateMusicBtn();});
-let musicAutostartArmed=true;
-function armMusicAutostart(){if(!musicAutostartArmed)return;musicAutostartArmed=false;try{startAmbientMusic();updateMusicBtn();}catch{}};
-canvas.addEventListener('click',armMusicAutostart,{once:true});canvas.addEventListener('touchstart',armMusicAutostart,{once:true});
+
+/* ═══ GLOBAL AUDIO UNLOCK — must be called on user gesture ═══ */
+function unlockAudio(){
+  initAudioCtx();resumeAudioCtx();
+  if(music.running&&music.ctx&&music.ctx.state==='suspended')music.ctx.resume();
+}
+canvas.addEventListener('pointerdown',unlockAudio,{passive:true});
+document.addEventListener('keydown',unlockAudio,{passive:true});
+document.addEventListener('touchstart',unlockAudio,{passive:true});
+document.body.addEventListener('click',unlockAudio,{passive:true});
+
 const anisoExt=gl.getExtension('EXT_texture_filter_anisotropic')||gl.getExtension('WEBKIT_EXT_texture_filter_anisotropic')||gl.getExtension('MOZ_EXT_texture_filter_anisotropic');
 const maxAniso=anisoExt?gl.getParameter(anisoExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT):1;
 const texture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,texture);
@@ -1387,11 +1681,14 @@ ctx.fillStyle='#4a8a4a';ctx.fillRect(0,0,64,64);ctx.fillStyle='#3a6f3a';
 for(let y=0;y<64;y+=8)for(let x=0;x<64;x+=8)if(((x/8)+(y/8))%2===0)ctx.fillRect(x,y,8,8);return c;}
 let started=false;
 function startOnce(){if(started)return;started=true;updateHeightmap(true);rebuildTreeInstances(true);showModeSelect();requestAnimationFrame(animate);}
-const image=new Image();image.crossOrigin="anonymous";
-image.src='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQBMrrvba0q5n14_lemrp2lSPv4XqAjVkIJylaUj-DOLJl5PyCwAVU-sZ14Y_oZVmEUCLs&usqp=CAU';
-image.onload=()=>{gl.bindTexture(gl.TEXTURE_2D,texture);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,image);gl.generateMipmap(gl.TEXTURE_2D);gl.disable(gl.BLEND);startOnce();};
-image.onerror=()=>{gl.bindTexture(gl.TEXTURE_2D,texture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,makeFallbackTex());gl.disable(gl.BLEND);startOnce();};
-setTimeout(startOnce,4000);
+/* Use only the fallback texture to avoid CORS/network issues */
+imageInit();
+function imageInit(){
+  gl.bindTexture(gl.TEXTURE_2D,texture);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,makeFallbackTex());
+  gl.disable(gl.BLEND);
+  startOnce();
+}
 gl.useProgram(program);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,texture);gl.uniform1i(main.u_texture,0);
 shopBtn.addEventListener('click',toggleShop);document.getElementById('shop-close').addEventListener('click',toggleShop);
 const CLIP_N=128,MC_GRID=128;
