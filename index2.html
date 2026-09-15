@@ -1,0 +1,2617 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Terrain with Shadows — Backrooms Houses</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0a0903; }
+  canvas { display: block; width: 100vw; height: 100vh; filter: saturate(0.8) contrast(1.08); }
+  #info { position: fixed; top: 8px; left: 8px; color: #cbb85e; font: 12px monospace; z-index: 10; text-shadow: 0 1px 2px #000; white-space: pre; opacity: .7; }
+</style>
+</head>
+<body>
+<div id="info">FPS: --</div>
+
+<audio id="backroomsMusic" autoplay></audio>
+<audio id="ghostWhisper" src="dragon-studio-ghost-whisper-351569.mp3" preload="auto"></audio>
+
+<script>
+const music=[
+"luxaeterna2026-dark-liminal-void-ambient-558010.mp3",
+"lux-aeterna-station-3am-liminal-ambient-537280.mp3"
+];
+const audio=document.getElementById("backroomsMusic");
+let track=0;
+function playNext(){
+  audio.src=music[track];
+  audio.play().catch(()=>{});
+  track=(track+1)%music.length;
+}
+audio.addEventListener("ended",playNext);
+playNext();
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.4.0/gl-matrix.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  // ============ CANVAS / GL ============
+  const canvas = document.createElement('canvas');
+  document.body.appendChild(canvas);
+  const gl = canvas.getContext('webgl2', { antialias: true });
+  if (!gl) {
+    document.getElementById('info').textContent = 'WebGL2 not supported.';
+    return;
+  }
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+
+  // ============ SCENE RENDER TARGET ============
+  const sceneFBO      = gl.createFramebuffer();
+  const sceneColorTex = gl.createTexture();
+  const sceneDepthRB  = gl.createRenderbuffer();
+
+  let msaaFBO = null, msaaColorRB = null, msaaDepthRB = null;
+  let msaaSamples = 0;
+  let sceneW = 1, sceneH = 1;
+  let currentDpr = 1;
+
+  function createSceneTargets(w, h) {
+    if (w < 1 || h < 1) return;
+    sceneW = w; sceneH = h;
+
+    gl.bindTexture(gl.TEXTURE_2D, sceneColorTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.bindRenderbuffer(gl.RENDERBUFFER, sceneDepthRB);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFBO);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sceneColorTex, 0);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, sceneDepthRB);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      console.error('Scene FBO incomplete');
+    }
+
+    msaaSamples = 0;
+    const maxSamples = gl.getParameter(gl.MAX_SAMPLES) | 0;
+    const want = Math.min(4, maxSamples);
+    if (want > 1) {
+      if (!msaaFBO) {
+        msaaFBO      = gl.createFramebuffer();
+        msaaColorRB  = gl.createRenderbuffer();
+        msaaDepthRB  = gl.createRenderbuffer();
+      }
+      gl.bindRenderbuffer(gl.RENDERBUFFER, msaaColorRB);
+      gl.renderbufferStorageMultisample(gl.RENDERBUFFER, want, gl.RGBA8, w, h);
+      gl.bindRenderbuffer(gl.RENDERBUFFER, msaaDepthRB);
+      gl.renderbufferStorageMultisample(gl.RENDERBUFFER, want, gl.DEPTH_COMPONENT24, w, h);
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, msaaFBO);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, msaaColorRB);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT,  gl.RENDERBUFFER, msaaDepthRB);
+      if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE) {
+        msaaSamples = want;
+      }
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    currentDpr = dpr;
+    canvas.width = Math.floor(window.innerWidth * dpr);
+    canvas.height = Math.floor(window.innerHeight * dpr);
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    createSceneTargets(canvas.width, canvas.height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ============ SHADER HELPERS ============
+  function compile(type, source) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, source);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      const log = gl.getShaderInfoLog(s);
+      console.error('Shader compile error:\n' + log);
+      source.split('\n').forEach((line, i) => console.error((i+1) + ': ' + line));
+      throw new Error('Shader compile failed: ' + log);
+    }
+    return s;
+  }
+
+  function program(vsSrc, fsSrc) {
+    const vs = compile(gl.VERTEX_SHADER, vsSrc);
+    const fs = compile(gl.FRAGMENT_SHADER, fsSrc);
+    const p = gl.createProgram();
+    gl.attachShader(p, vs);
+    gl.attachShader(p, fs);
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      const log = gl.getProgramInfoLog(p);
+      console.error('Program link error:\n' + log);
+      throw new Error('Program link failed: ' + log);
+    }
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    return p;
+  }
+
+  // ============ CONSTANTS ============
+  const TERRAIN = { k: 38.0, p: 1.0, m: 260.0, seed: 1337, cellSize: 4.0, gridSize: 256 };
+  const VERTEX_COUNT = TERRAIN.gridSize * TERRAIN.gridSize * 6;
+  const SHADOW_SIZE = 2048;
+
+  // ============ NOISE GLSL ============
+  const NOISE_GLSL = `
+    uint hashU(uint x) {
+      x ^= x >> 16;
+      x *= 0x7feb352du;
+      x ^= x >> 15;
+      x *= 0x846ca68bu;
+      x ^= x >> 16;
+      return x;
+    }
+    float rand2(int x, int y, int seed) {
+      uint h = hashU(uint(x) * 1597334677u ^ uint(y) * 3812015801u ^ uint(seed) * 2654435761u);
+      return float(h) * (1.0 / 4294967296.0);
+    }
+    float noise2(float x, float y, int seed) {
+      float ix = floor(x), iy = floor(y);
+      float fx = x - ix, fy = y - iy;
+      float ux = fx * fx * (3.0 - 2.0 * fx);
+      float uy = fy * fy * (3.0 - 2.0 * fy);
+      float a = rand2(int(ix),     int(iy),     seed);
+      float b = rand2(int(ix)+1,   int(iy),     seed);
+      float c = rand2(int(ix),     int(iy)+1,   seed);
+      float d = rand2(int(ix)+1,   int(iy)+1,   seed);
+      return mix(mix(a, b, ux), mix(c, d, ux), uy);
+    }
+    float terrainHeight(vec2 pos, float k, float p, float m, int seed) {
+      vec2 s = pos * p / m;
+      float n1 = noise2(s.x,                  s.y,                  seed);
+      float n2 = noise2(s.x * 2.7  + 31.4,    s.y * 2.7  - 17.2,    seed + 101);
+      float n3 = noise2(s.x * 6.1  -  8.8,    s.y * 6.1  + 55.5,    seed + 202);
+      float n4 = noise2(s.x * 13.3 +  2.2,    s.y * 13.3 -  7.7,    seed + 303);
+      return k * (n1 * 0.52 + n2 * 0.24 + n3 * 0.14 + n4 * 0.10);
+    }
+  `;
+
+  // ============ TERRAIN SHADOW PASS ============
+  const shadowVS = `#version 300 es
+    precision highp float;
+    precision highp int;
+    uniform mat4 u_lightViewProj;
+    uniform float u_k, u_p, u_m;
+    uniform int u_seed;
+    uniform vec2 u_cameraPos;
+    uniform float u_cellSize;
+    uniform int u_gridSize;
+    ${NOISE_GLSL}
+    void main() {
+      int vid = gl_VertexID % 6;
+      int quadID = gl_VertexID / 6;
+      int gx = quadID % u_gridSize;
+      int gz = quadID / u_gridSize;
+      vec2 off;
+      if      (vid == 0) off = vec2(0.0, 0.0);
+      else if (vid == 1) off = vec2(1.0, 0.0);
+      else if (vid == 2) off = vec2(1.0, 1.0);
+      else if (vid == 3) off = vec2(0.0, 0.0);
+      else if (vid == 4) off = vec2(1.0, 1.0);
+      else               off = vec2(0.0, 1.0);
+      vec2 snapped = floor(u_cameraPos / u_cellSize) * u_cellSize;
+      vec2 origin  = snapped - 0.5 * float(u_gridSize) * u_cellSize;
+      vec2 world = origin + (vec2(float(gx), float(gz)) + off) * u_cellSize;
+      float h = terrainHeight(world, u_k, u_p, u_m, u_seed);
+      vec3 pos = vec3(world.x, h, world.y);
+      gl_Position = u_lightViewProj * vec4(pos, 1.0);
+    }
+  `;
+  const shadowFS = `#version 300 es
+    precision highp float;
+    out vec4 fragColor;
+    void main() { fragColor = vec4(1.0); }
+  `;
+
+  // ============ TERRAIN MAIN PASS ============
+  const mainVS = `#version 300 es
+    precision highp float;
+    precision highp int;
+    uniform mat4 u_modelViewMatrix;
+    uniform mat4 u_projectionMatrix;
+    uniform mat4 u_lightViewProj;
+    uniform float u_k, u_p, u_m;
+    uniform int u_seed;
+    uniform vec2 u_cameraPos;
+    uniform float u_cellSize;
+    uniform int u_gridSize;
+    out vec3 v_worldPos;
+    out vec2 v_uv;
+    out vec4 v_lightSpacePos;
+    ${NOISE_GLSL}
+    void main() {
+      int vid = gl_VertexID % 6;
+      int quadID = gl_VertexID / 6;
+      int gx = quadID % u_gridSize;
+      int gz = quadID / u_gridSize;
+      vec2 off;
+      if      (vid == 0) off = vec2(0.0, 0.0);
+      else if (vid == 1) off = vec2(1.0, 0.0);
+      else if (vid == 2) off = vec2(1.0, 1.0);
+      else if (vid == 3) off = vec2(0.0, 0.0);
+      else if (vid == 4) off = vec2(1.0, 1.0);
+      else               off = vec2(0.0, 1.0);
+      vec2 snapped = floor(u_cameraPos / u_cellSize) * u_cellSize;
+      vec2 origin  = snapped - 0.5 * float(u_gridSize) * u_cellSize;
+      vec2 world = origin + (vec2(float(gx), float(gz)) + off) * u_cellSize;
+      float h = terrainHeight(world, u_k, u_p, u_m, u_seed);
+      vec3 pos = vec3(world.x, h, world.y);
+      v_uv = world / 25.0;
+      v_worldPos = pos;
+      v_lightSpacePos = u_lightViewProj * vec4(pos, 1.0);
+      gl_Position = u_projectionMatrix * u_modelViewMatrix * vec4(pos, 1.0);
+    }
+  `;
+  const mainFS = `#version 300 es
+    precision highp float;
+    precision highp int;
+    uniform sampler2D u_texture;
+    uniform sampler2D u_shadowMap;
+    uniform vec3 u_sunDir;
+    uniform vec3 u_sunColor;
+    uniform vec3 u_skyColor;
+    uniform vec3 u_groundColor;
+    uniform vec3 u_horizonColor;
+    uniform vec3 u_cameraWorld;
+    uniform float u_shadowBias;
+    uniform float u_shadowRadius;
+    uniform int u_shadowEnabled;
+    uniform float u_k;
+    uniform float u_grassBump;
+    in vec3 v_worldPos;
+    in vec2 v_uv;
+    in vec4 v_lightSpacePos;
+    out vec4 outColor;
+
+    ${NOISE_GLSL}
+
+    float computeShadow(vec4 lsp, float NdotL) {
+      if (u_shadowEnabled == 0) return 1.0;
+      vec3 proj = lsp.xyz / lsp.w;
+      proj = proj * 0.5 + 0.5;
+      if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0) return 1.0;
+      float bias = max(u_shadowBias * (1.0 - NdotL), u_shadowBias * 0.35);
+      float shadow = 0.0;
+      vec2 texel = vec2(1.0 / float(${SHADOW_SIZE}));
+      for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+          float pd = texture(u_shadowMap, proj.xy + vec2(float(x), float(y)) * texel * u_shadowRadius).r;
+          shadow += (proj.z - bias > pd) ? 0.0 : 1.0;
+        }
+      }
+      return shadow / 9.0;
+    }
+
+    float grassDetail(vec2 p) {
+      float n  = noise2(p.x * 14.0,        p.y * 14.0,        733) * 0.50;
+      n += noise2(p.x * 38.0 + 5.1,   p.y * 38.0 - 2.3,  811) * 0.30;
+      n += noise2(p.x * 92.0 - 7.7,   p.y * 92.0 + 3.9,  907) * 0.20;
+      return n;
+    }
+
+    void main() {
+      float dcam = distance(v_worldPos, u_cameraWorld);
+      float detailFade = 1.0 - smoothstep(8.0, 48.0, dcam);
+
+      vec3 N = normalize(cross(dFdx(v_worldPos), dFdy(v_worldPos)));
+      if (N.y < 0.0) N = -N;
+
+      vec2 gp = v_worldPos.xz;
+      float eps = 0.05;
+      float g0 = grassDetail(gp);
+      float gx = grassDetail(gp + vec2(eps, 0.0));
+      float gz = grassDetail(gp + vec2(0.0, eps));
+      vec2 grad = vec2(gx - g0, gz - g0) / eps;
+      vec3 Nf = normalize(N + vec3(-grad.x, 0.0, -grad.y) * u_grassBump * detailFade);
+
+      vec3 L = normalize(u_sunDir);
+      float NdLgeo = max(dot(N,  L), 0.0);
+      float NdL    = max(dot(Nf, L), 0.0);
+      float shadow = computeShadow(v_lightSpacePos, NdLgeo);
+
+      float heightNorm = clamp(v_worldPos.y / (u_k * 0.95), 0.0, 1.0);
+      float slope      = clamp(1.0 - N.y, 0.0, 1.0);
+      float dryness    = clamp(heightNorm * 0.85 + slope * 0.60, 0.0, 1.0);
+
+      // damp, stained institutional carpet
+      vec3 carpetDark  = vec3(0.26, 0.22, 0.09);
+      vec3 carpetWorn  = vec3(0.58, 0.50, 0.21);
+      vec3 grassCol    = mix(carpetDark, carpetWorn, dryness);
+
+      vec3  texCol    = texture(u_texture, v_uv).rgb;
+      float texLum    = dot(texCol, vec3(0.299, 0.587, 0.114));
+      float texDetail = clamp(texLum * 2.7, 0.35, 1.75);
+
+      vec3 albedo = grassCol * texDetail;
+      albedo *= 0.88 + 0.26 * g0;
+
+      vec3 diffuse = u_sunColor * NdL * shadow;
+      float skyMix  = 0.5 + 0.5 * Nf.y;
+      vec3 ambient  = mix(u_groundColor, u_skyColor, skyMix) * 0.62;
+
+      vec3 color = albedo * (diffuse + ambient);
+
+      // the air itself is thick, yellow and close
+      float fog = smoothstep(14.0, 165.0, dcam);
+      color = mix(color, u_horizonColor, fog);
+
+      // squeeze the life out of the colour
+      float lum = dot(color, vec3(0.299, 0.587, 0.114));
+      color = mix(color, vec3(lum) * vec3(1.06, 1.00, 0.72), 0.45);
+
+      color = color / (color + vec3(1.0));
+      color = pow(color, vec3(1.0 / 2.2));
+      outColor = vec4(color, 1.0);
+    }
+  `;
+
+  // ============ SKY PASS ============
+  const skyVS = `#version 300 es
+    precision highp float;
+    out vec2 v_ndc;
+    void main() {
+      vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+      v_ndc = p * 2.0 - 1.0;
+      gl_Position = vec4(v_ndc, 1.0, 1.0);
+    }
+  `;
+  const skyFS = `#version 300 es
+    precision highp float;
+    precision highp int;
+    uniform mat4 u_invViewProj;
+    uniform vec3 u_cameraWorld;
+    uniform vec3 u_sunDir;
+    uniform vec3 u_sunColor;
+    uniform vec3 u_skyColor;
+    uniform vec3 u_horizonColor;
+    uniform float u_time;
+    in vec2 v_ndc;
+    out vec4 outColor;
+    ${NOISE_GLSL}
+    float fbm(vec2 p, int seed) {
+      float v = 0.0;
+      float a = 0.5;
+      vec2 q = p;
+      for (int i = 0; i < 6; i++) {
+        v += a * noise2(q.x, q.y, seed + i * 53);
+        q = q * 2.07 + vec2(3.7, -1.9);
+        a *= 0.5;
+      }
+      return v;
+    }
+    void main() {
+      vec4 clip = vec4(v_ndc, 1.0, 1.0);
+      vec4 wp   = u_invViewProj * clip;
+      vec3 dir  = normalize(wp.xyz / wp.w - u_cameraWorld);
+
+      float up = clamp(dir.y, -1.0, 1.0);
+      float t  = smoothstep(-0.30, 0.90, up);
+      vec3 sky = mix(u_horizonColor, u_skyColor, t);
+
+      // slow roiling stains crawling across the ceiling
+      vec2 cp = dir.xz / (abs(dir.y) + 0.32);
+      cp = cp * 0.55 + vec2(u_time * 0.006, u_time * 0.0023);
+      float f1 = fbm(cp * 0.60, 1200);
+      float f2 = fbm(cp * 1.70 + 13.0, 1600);
+      sky *= 0.78 + 0.48 * (f1 * 0.68 + f2 * 0.32);
+
+      // distant fluorescent tubes bleeding through the haze
+      float band = sin(dir.x * 22.0 + u_time * 0.11) * sin(dir.z * 22.0 - u_time * 0.08);
+      sky += u_sunColor * smoothstep(0.88, 1.0, band) * 0.12 * smoothstep(-0.1, 0.45, up);
+
+      // mains flicker bleeding into the air itself
+      sky *= 0.93 + 0.07 * sin(u_time * 37.7) * sin(u_time * 12.3);
+
+      float sd = max(dot(dir, u_sunDir), 0.0);
+      sky += u_sunColor * pow(sd, 5.0) * 0.10;
+
+      sky = sky / (sky + vec3(1.0));
+      sky = pow(sky, vec3(1.0 / 2.2));
+      outColor = vec4(sky, 1.0);
+    }
+  `;
+
+  // ============ CRT POST-PROCESS PASS ============
+  const postVS = `#version 300 es
+    precision highp float;
+    out vec2 v_uv;
+    void main() {
+      vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+      v_uv = p;
+      gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+    }
+  `;
+
+  const postFS = `#version 300 es
+    precision highp float;
+    precision highp int;
+
+    uniform sampler2D u_scene;
+    uniform vec2  u_resolution;
+    uniform float u_time;
+    uniform float u_curvature;
+    uniform float u_blur;
+    uniform float u_scanline;
+    uniform float u_aberration;
+    uniform float u_noise;
+    uniform float u_vignette;
+    uniform float u_flicker;
+    uniform float u_mask;
+    uniform float u_glitch;
+    uniform float u_warp;
+    uniform float u_dread;
+
+    in vec2 v_uv;
+    out vec4 outColor;
+
+    float hash21(vec2 p) {
+      p = fract(p * vec2(123.34, 456.21));
+      p += dot(p, p + 45.32);
+      return fract(p.x * p.y);
+    }
+
+    vec3 blur9(vec2 uv, vec2 texel) {
+      vec3 s = vec3(0.0);
+      s += texture(u_scene, uv + vec2(-1.0, -1.0) * texel).rgb * 0.0625;
+      s += texture(u_scene, uv + vec2( 0.0, -1.0) * texel).rgb * 0.1250;
+      s += texture(u_scene, uv + vec2( 1.0, -1.0) * texel).rgb * 0.0625;
+      s += texture(u_scene, uv + vec2(-1.0,  0.0) * texel).rgb * 0.1250;
+      s += texture(u_scene, uv                              ).rgb * 0.2500;
+      s += texture(u_scene, uv + vec2( 1.0,  0.0) * texel).rgb * 0.1250;
+      s += texture(u_scene, uv + vec2(-1.0,  1.0) * texel).rgb * 0.0625;
+      s += texture(u_scene, uv + vec2( 0.0,  1.0) * texel).rgb * 0.1250;
+      s += texture(u_scene, uv + vec2( 1.0,  1.0) * texel).rgb * 0.0625;
+      return s;
+    }
+
+    void main() {
+      vec2 cc = v_uv - 0.5;
+      float r2 = dot(cc, cc);
+
+      vec2 uv = v_uv + cc * r2 * u_curvature;
+
+      // ---- tape warp: the picture breathes and sags
+      uv.x += sin(v_uv.y * 74.0 + u_time * 2.6) * 0.0018 * u_warp;
+      uv.y += sin(v_uv.x * 31.0 - u_time * 1.3) * 0.0014 * u_warp;
+      uv += vec2(sin(u_time * 0.7), cos(u_time * 0.53)) * 0.0012 * u_warp;
+
+      // ---- tracking band: a soft horizontal tear crawling up the screen
+      float bandPos  = fract(u_time * 0.083);
+      float bandDist = abs(fract(v_uv.y - bandPos + 0.5) - 0.5);
+      float band     = 1.0 - smoothstep(0.0, 0.055, bandDist);
+      uv.x += (hash21(vec2(floor(v_uv.y * 220.0), floor(u_time * 12.0))) - 0.5)
+              * 0.07 * band * (0.30 + u_glitch * 0.90 + u_warp * 0.35);
+
+      // ---- hard glitch slices
+      float sliceY  = floor(v_uv.y * 42.0);
+      float sliceT  = floor(u_time * 20.0);
+      float g       = hash21(vec2(sliceY, sliceT));
+      float sliceOn = step(1.0 - u_glitch * 0.75, g);
+      uv.x += (hash21(vec2(sliceY, 7.0)) - 0.5) * 0.16 * sliceOn;
+      uv.y += (hash21(vec2(sliceY, 9.0)) - 0.5) * 0.05 * sliceOn;
+
+      vec2 b = smoothstep(vec2(0.0), vec2(0.006), uv) *
+               (vec2(1.0) - smoothstep(vec2(0.994), vec2(1.0), uv));
+      float edge = b.x * b.y;
+
+      vec2 uvSafe = clamp(uv, vec2(0.0), vec2(1.0));
+      vec2 texel  = u_blur / u_resolution;
+      vec2 ca     = cc * (u_aberration + u_glitch * 0.020) * (1.0 + u_dread);
+
+      vec3 col;
+      col.r = blur9(uvSafe + ca, texel).r;
+      col.g = blur9(uvSafe,      texel).g;
+      col.b = blur9(uvSafe - ca, texel).b;
+
+      vec2 fc = gl_FragCoord.xy;
+
+      // scanlines, heavier and uneven
+      float scan = 0.5 + 0.5 * sin(fc.y * 3.14159265);
+      col *= mix(1.0, 0.30 + 0.70 * scan, u_scanline);
+
+      // aperture grille
+      float m = mod(floor(fc.x), 3.0);
+      vec3 maskCol = vec3(
+        (m < 1.0) ? 1.0 : 0.72,
+        (m >= 1.0 && m < 2.0) ? 1.0 : 0.72,
+        (m >= 2.0) ? 1.0 : 0.72
+      );
+      col *= mix(vec3(1.0), maskCol, u_mask);
+
+      // vertical roll bar
+      float roll = fract(fc.y / max(u_resolution.y, 1.0) - u_time * 0.055);
+      float bar  = smoothstep(0.0, 0.22, roll) * (1.0 - smoothstep(0.22, 0.58, roll));
+      col *= 1.0 + bar * 0.07;
+
+      // the tape itself is loud
+      float n = hash21(fc + fract(u_time * 13.0) * 137.0);
+      col += (n - 0.5) * (u_noise + u_glitch * 0.22 + u_dread * 0.05);
+      col += vec3(0.02, 0.005, -0.02) * (u_glitch * 0.6);
+
+      // mains flicker
+      col *= 1.0 + u_flicker * (sin(u_time * 43.0) * 0.6 + sin(u_time * 17.3) * 0.4);
+      col *= 0.96 + 0.04 * sin(u_time * 2.3);
+
+      // sickly amber cast, colour squeezed out
+      float lg = dot(col, vec3(0.299, 0.587, 0.114));
+      col = mix(col, vec3(lg) * vec3(1.18, 1.02, 0.54), 0.45);
+
+      // vignette closes in when the thing is near
+      float vig = clamp(1.0 - (u_vignette + u_dread * 0.5) * r2 * 1.9, 0.0, 1.0);
+      col *= vig;
+
+      col *= edge;
+      outColor = vec4(col, 1.0);
+    }
+  `;
+
+  // ============ HOUSE SHADERS ============
+  const houseShadowVS = `#version 300 es
+    precision highp float;
+    layout(location=0) in vec3 a_position;
+    layout(location=4) in vec3 a_instPos;
+    layout(location=5) in vec2 a_instRS;
+    uniform mat4 u_lightViewProj;
+    void main() {
+      float c = cos(a_instRS.x), s = sin(a_instRS.x);
+      vec3 p = a_position * a_instRS.y;
+      vec3 wp = vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z) + a_instPos;
+      gl_Position = u_lightViewProj * vec4(wp, 1.0);
+    }
+  `;
+  const houseShadowFS = `#version 300 es
+    precision highp float;
+    out vec4 fragColor;
+    void main() { fragColor = vec4(1.0); }
+  `;
+
+  const houseVS = `#version 300 es
+    precision highp float;
+    layout(location=0) in vec3 a_position;
+    layout(location=1) in vec3 a_normal;
+    layout(location=2) in vec2 a_uv;
+    layout(location=3) in float a_mat;
+    layout(location=4) in vec3 a_instPos;
+    layout(location=5) in vec2 a_instRS;
+    uniform mat4 u_viewMatrix;
+    uniform mat4 u_projectionMatrix;
+    uniform mat4 u_lightViewProj;
+    out vec3 v_worldPos;
+    out vec3 v_normal;
+    out vec2 v_uv;
+    out float v_mat;
+    out vec4 v_lightSpacePos;
+    void main() {
+      float c = cos(a_instRS.x), s = sin(a_instRS.x);
+      vec3 p = a_position * a_instRS.y;
+      vec3 wp = vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z) + a_instPos;
+      vec3 n  = vec3(c * a_normal.x + s * a_normal.z, a_normal.y,
+                     -s * a_normal.x + c * a_normal.z);
+      v_worldPos = wp;
+      v_normal = n;
+      v_uv = a_uv;
+      v_mat = a_mat;
+      v_lightSpacePos = u_lightViewProj * vec4(wp, 1.0);
+      gl_Position = u_projectionMatrix * u_viewMatrix * vec4(wp, 1.0);
+    }
+  `;
+
+  const houseFS = `#version 300 es
+    precision highp float;
+    uniform highp sampler2DArray u_texArray;
+    uniform sampler2D u_shadowMap;
+    uniform vec3 u_sunDir;
+    uniform vec3 u_sunColor;
+    uniform vec3 u_skyColor;
+    uniform vec3 u_groundColor;
+    uniform vec3 u_horizonColor;
+    uniform vec3 u_cameraWorld;
+    uniform float u_shadowBias;
+    uniform int u_shadowEnabled;
+    in vec3 v_worldPos;
+    in vec3 v_normal;
+    in vec2 v_uv;
+    in float v_mat;
+    in vec4 v_lightSpacePos;
+    out vec4 outColor;
+
+    float computeShadow(vec4 lsp, float NdotL) {
+      if (u_shadowEnabled == 0) return 1.0;
+      vec3 proj = lsp.xyz / lsp.w;
+      proj = proj * 0.5 + 0.5;
+      if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0) return 1.0;
+      float bias = max(u_shadowBias * (1.0 - NdotL), u_shadowBias * 0.35);
+      float shadow = 0.0;
+      vec2 texel = vec2(1.0 / float(${SHADOW_SIZE}));
+      for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+          float pd = texture(u_shadowMap, proj.xy + vec2(float(x), float(y)) * texel).r;
+          shadow += (proj.z - bias > pd) ? 0.0 : 1.0;
+        }
+      }
+      return shadow / 9.0;
+    }
+
+    void main() {
+      float layer = floor(v_mat + 0.5);
+      vec3 albedo = texture(u_texArray, vec3(v_uv, layer)).rgb;
+      vec3 N = normalize(v_normal);
+      vec3 L = normalize(u_sunDir);
+      float NdotL = max(dot(N, L), 0.0);
+      float shadow = computeShadow(v_lightSpacePos, NdotL);
+
+      vec3 diffuse = u_sunColor * NdotL * shadow;
+      float skyMix = 0.5 + 0.5 * N.y;
+      vec3 ambient = mix(u_groundColor, u_skyColor, skyMix) * 0.55;
+
+      vec3 color = albedo * (diffuse + ambient);
+
+      float dist = distance(v_worldPos, u_cameraWorld);
+      float fog = smoothstep(16.0, 170.0, dist);
+      color = mix(color, u_horizonColor, fog);
+
+      float lum = dot(color, vec3(0.299, 0.587, 0.114));
+      color = mix(color, vec3(lum) * vec3(1.06, 1.00, 0.72), 0.45);
+
+      color = color / (color + vec3(1.0));
+      color = pow(color, vec3(1.0 / 2.2));
+      outColor = vec4(color, 1.0);
+    }
+  `;
+
+  // ============ ENTITY SHADERS ============
+  const entityVS = `#version 300 es
+    precision highp float;
+    layout(location=0) in vec3 a_position;
+    layout(location=1) in float a_heightNorm;
+    uniform mat4 u_model;
+    uniform mat4 u_viewMatrix;
+    uniform mat4 u_projectionMatrix;
+    uniform float u_time;
+    uniform float u_sway;
+    uniform float u_swaySpeed;
+    uniform float u_breath;
+    uniform float u_headTilt;
+    uniform float u_seed;
+    out vec3 v_worldPos;
+    void main() {
+      float h  = clamp(a_heightNorm, 0.0, 1.0);
+      float hh = h * h;
+      float t  = u_time * u_swaySpeed + u_seed;
+
+      vec3 p = a_position;
+
+      p.x += sin(t)              * u_sway * hh;
+      p.z += cos(t * 0.83 + 1.7) * u_sway * 0.75 * hh;
+
+      float headW = smoothstep(0.68, 0.90, h);
+      p.x += sin(t * 0.61 + 2.3) * u_headTilt * headW;
+      p.z += cos(t * 0.47 + 0.9) * u_headTilt * 0.6 * headW;
+
+      float chest = smoothstep(0.30, 0.55, h) * (1.0 - smoothstep(0.55, 0.92, h));
+      p.y += sin(t * 1.4) * u_breath * 0.010 * chest;
+
+      float twitch = sin(t * 11.3 + 0.4) * sin(t * 3.7 + u_seed);
+      p.x += twitch * u_sway * 0.20 * hh;
+
+      vec4 wp = u_model * vec4(p, 1.0);
+      v_worldPos = wp.xyz;
+      gl_Position = u_projectionMatrix * u_viewMatrix * wp;
+    }
+  `;
+
+  const entityFS = `#version 300 es
+    precision highp float;
+    uniform vec3 u_cameraWorld;
+    uniform vec3 u_horizonColor;
+    in vec3 v_worldPos;
+    out vec4 outColor;
+    void main() {
+      float d = distance(v_worldPos, u_cameraWorld);
+      float haze = smoothstep(24.0, 150.0, d) * 0.55;
+      vec3 col = mix(vec3(0.0, 0.0, 0.0), u_horizonColor, haze);
+
+      float lum = dot(col, vec3(0.299, 0.587, 0.114));
+      col = mix(col, vec3(lum) * vec3(1.06, 1.00, 0.72), 0.45);
+
+      col = col / (col + vec3(1.0));
+      col = pow(col, vec3(1.0 / 2.2));
+      outColor = vec4(col, 1.0);
+    }
+  `;
+
+  // ============ BUILD PROGRAMS ============
+  let shadowProg, mainProg, skyProg, houseShadowProg, houseProg, postProg, entityProg;
+  try {
+    shadowProg      = program(shadowVS, shadowFS);
+    mainProg        = program(mainVS,   mainFS);
+    skyProg         = program(skyVS,    skyFS);
+    houseShadowProg = program(houseShadowVS, houseShadowFS);
+    houseProg       = program(houseVS,       houseFS);
+    postProg        = program(postVS,        postFS);
+    entityProg      = program(entityVS,      entityFS);
+  } catch (e) {
+    document.getElementById('info').textContent = 'Shader error — see console.';
+    return;
+  }
+
+  // ============ SHADOW FBO ============
+  const shadowTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, shadowTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT32F, SHADOW_SIZE, SHADOW_SIZE, 0, gl.DEPTH_COMPONENT, gl.FLOAT, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  const shadowColorTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, shadowColorTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, SHADOW_SIZE, SHADOW_SIZE, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+  const shadowFBO = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFBO);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, shadowColorTex, 0);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT,  gl.TEXTURE_2D, shadowTex, 0);
+  const fboStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  if (fboStatus !== gl.FRAMEBUFFER_COMPLETE) console.error('Shadow FBO incomplete:', fboStatus);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+  // ============ TEXTURE HELPERS ============
+  function uploadTexture(cv, useRepeat) {
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, cv);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    if (useRepeat) {
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    } else {
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    const ext = gl.getExtension('EXT_texture_filter_anisotropic');
+    if (ext) {
+      const maxA = gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+      gl.texParameterf(gl.TEXTURE_2D, ext.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, maxA));
+    }
+    return tex;
+  }
+
+  function makeTextureArray(canvases) {
+    const S = canvases[0].width;
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+    gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, S, S, canvases.length, 0,
+                  gl.RGBA, gl.UNSIGNED_BYTE, null);
+    for (let i = 0; i < canvases.length; i++) {
+      gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i, S, S, 1,
+                       gl.RGBA, gl.UNSIGNED_BYTE, canvases[i]);
+    }
+    gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    const ext = gl.getExtension('EXT_texture_filter_anisotropic');
+    if (ext) {
+      const maxA = gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+      gl.texParameterf(gl.TEXTURE_2D_ARRAY, ext.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, maxA));
+    }
+    return tex;
+  }
+
+  // ============ CARPET / GROUND TEXTURE ============
+  function makeGrassTexture(size) {
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#8a7a38';
+    ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < 180; i++) {
+      const x = Math.random() * size, y = Math.random() * size;
+      const r = 30 + Math.random() * 190;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      const bright = Math.random() > 0.5;
+      const col = bright
+        ? `rgba(${172 + Math.random()*60},${152 + Math.random()*55},${72 + Math.random()*45},0.16)`
+        : `rgba(${58  + Math.random()*28},${46  + Math.random()*26},${16  + Math.random()*16},0.20)`;
+      g.addColorStop(0, col);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (let i = 0; i < 40; i++) {
+      const x = Math.random() * size, y = Math.random() * size;
+      const r = 15 + Math.random() * 50;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, 'rgba(96,74,32,0.34)');
+      g.addColorStop(1, 'rgba(96,74,32,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const img = ctx.getImageData(0, 0, size, size);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const n = (Math.random() - 0.5) * 42;
+      d[i] = Math.max(0, Math.min(255, d[i] + n));
+      d[i+1] = Math.max(0, Math.min(255, d[i+1] + n));
+      d[i+2] = Math.max(0, Math.min(255, d[i+2] + n));
+    }
+    ctx.putImageData(img, 0, 0);
+    for (let i = 0; i < 42000; i++) {
+      const x = Math.random() * size, y = Math.random() * size;
+      const len = 3 + Math.random() * 14;
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 1.95;
+      const bright = Math.random() < 0.36;
+      ctx.strokeStyle = bright
+        ? `rgba(${188 + Math.random()*60},${166 + Math.random()*55},${84 + Math.random()*50},0.26)`
+        : `rgba(${52  + Math.random()*28},${44  + Math.random()*24},${14  + Math.random()*14},0.36)`;
+      ctx.lineWidth = 0.5 + Math.random() * 0.9;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+      ctx.stroke();
+    }
+    for (let i = 0; i < 3000; i++) {
+      ctx.fillStyle = `rgba(255,250,215,${0.03 + Math.random() * 0.09})`;
+      ctx.fillRect(Math.random() * size, Math.random() * size, 1 + Math.random() * 2, 1 + Math.random() * 2);
+    }
+    return uploadTexture(c, true);
+  }
+  const grassTex = makeGrassTexture(1024);
+
+  // ============ HOUSE TEXTURE CANVASES ============
+  const TEX_SIZE = 512;
+
+  function makeWallCanvas() {
+    const size = TEX_SIZE;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#e3d6a0';
+    ctx.fillRect(0, 0, size, size);
+
+    const rows = 10;
+    const boardH = size / rows;
+    for (let i = 0; i < rows; i++) {
+      const y = i * boardH;
+      ctx.fillStyle = 'rgba(90,88,80,0.55)';
+      ctx.fillRect(0, y + boardH - 3, size, 3);
+      ctx.fillStyle = 'rgba(60,58,52,0.75)';
+      ctx.fillRect(0, y + boardH - 1, size, 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillRect(0, y + 1, size, 1);
+      const seamX = Math.floor((Math.random() * 0.5 + 0.25) * size);
+      ctx.fillStyle = 'rgba(120,118,108,0.25)';
+      ctx.fillRect(seamX, y + 2, 1, boardH - 4);
+    }
+
+    const img = ctx.getImageData(0, 0, size, size);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const n = (Math.random() - 0.5) * 10;
+      d[i]   = Math.max(0, Math.min(255, d[i]   + n));
+      d[i+1] = Math.max(0, Math.min(255, d[i+1] + n));
+      d[i+2] = Math.max(0, Math.min(255, d[i+2] + n));
+    }
+    ctx.putImageData(img, 0, 0);
+    return c;
+  }
+
+  function makeRoofCanvas() {
+    const size = TEX_SIZE;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#2c2c30';
+    ctx.fillRect(0, 0, size, size);
+
+    const cols = 14;
+    const rows = 16;
+    const tileW = size / cols;
+    const tileH = size / rows;
+    for (let r = 0; r < rows; r++) {
+      const offset = (r % 2) * tileW * 0.5;
+      for (let col = -1; col < cols + 1; col++) {
+        const x = col * tileW + offset;
+        const y = r * tileH;
+        const shade = 0.55 + Math.random() * 0.55;
+        const base = Math.floor(75 * shade);
+        ctx.fillStyle = `rgb(${base},${base},${base + 6})`;
+        ctx.fillRect(x + 0.5, y + 0.5, tileW - 1, tileH - 1);
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(x + 0.5, y + tileH - 3, tileW - 1, 2);
+        for (let k = 0; k < 4; k++) {
+          const gx = x + Math.random() * tileW;
+          const gy = y + Math.random() * tileH;
+          const gs = Math.random() * 25 + 40;
+          ctx.fillStyle = `rgba(${gs},${gs},${gs+4},0.35)`;
+          ctx.fillRect(gx, gy, 1, 1);
+        }
+      }
+    }
+    return c;
+  }
+
+  function makeWindowCanvas() {
+    const size = TEX_SIZE;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+
+    const grad = ctx.createLinearGradient(0, 0, 0, size);
+    grad.addColorStop(0.00, '#bfdcea');
+    grad.addColorStop(0.35, '#a8cbe0');
+    grad.addColorStop(0.70, '#7ea8c7');
+    grad.addColorStop(1.00, '#5b7f9c');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.fillStyle = 'rgba(40,50,60,0.28)';
+    ctx.beginPath();
+    ctx.moveTo(0, size * 0.68);
+    ctx.bezierCurveTo(size * 0.3, size * 0.55, size * 0.7, size * 0.78, size, size * 0.62);
+    ctx.lineTo(size, size);
+    ctx.lineTo(0, size);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = size * 0.03;
+    ctx.beginPath();
+    ctx.moveTo(size * 0.10, size * 0.05);
+    ctx.lineTo(size * 0.45, size * 0.95);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.20)';
+    ctx.lineWidth = size * 0.015;
+    ctx.beginPath();
+    ctx.moveTo(size * 0.30, size * 0.05);
+    ctx.lineTo(size * 0.62, size * 0.95);
+    ctx.stroke();
+
+    const frameW = size * 0.09;
+    ctx.fillStyle = '#f7f5ee';
+    ctx.fillRect(0, 0, size, frameW);
+    ctx.fillRect(0, size - frameW, size, frameW);
+    ctx.fillRect(0, 0, frameW, size);
+    ctx.fillRect(size - frameW, 0, frameW, size);
+
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(frameW, frameW, size - 2*frameW, size - 2*frameW);
+
+    const mullW = size * 0.045;
+    ctx.fillStyle = '#f7f5ee';
+    ctx.fillRect(size * 0.5 - mullW * 0.5, frameW, mullW, size - 2*frameW);
+    ctx.fillRect(frameW, size * 0.5 - mullW * 0.5, size - 2*frameW, mullW);
+
+    ctx.fillStyle = 'rgba(0,0,0,0.20)';
+    ctx.fillRect(size * 0.5 - mullW * 0.5 + mullW - 1, frameW, 1, size - 2*frameW);
+    ctx.fillRect(frameW, size * 0.5 - mullW * 0.5 + mullW - 1, size - 2*frameW, 1);
+
+    return c;
+  }
+
+  function makeDoorCanvas() {
+    const size = TEX_SIZE;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+
+    ctx.fillStyle = '#5a3a20';
+    ctx.fillRect(0, 0, size, size);
+
+    for (let i = 0; i < 260; i++) {
+      const x = Math.random() * size;
+      const shade = 0.65 + Math.random() * 0.55;
+      ctx.fillStyle = `rgba(${Math.floor(95*shade)},${Math.floor(62*shade)},${Math.floor(30*shade)},0.35)`;
+      ctx.fillRect(x, 0, 1 + Math.random() * 1.5, size);
+    }
+
+    const mx = size * 0.16;
+    const pw = size - 2 * mx;
+    const gap = size * 0.055;
+    const ph = (size - gap * 3) / 2;
+
+    function drawPanel(y, h) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(mx, y, pw, h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(mx + 3, y + 3, pw - 6, h - 6);
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillRect(mx + 2, y + h - 6, pw - 4, 4);
+    }
+    drawPanel(gap, ph);
+    drawPanel(gap * 2 + ph, ph);
+
+    ctx.fillStyle = '#d4a838';
+    ctx.beginPath();
+    ctx.arc(size * 0.86, size * 0.54, size * 0.045, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.beginPath();
+    ctx.arc(size * 0.855, size * 0.535, size * 0.012, 0, Math.PI * 2);
+    ctx.fill();
+
+    return c;
+  }
+
+  const MAT = { WALL: 0, ROOF: 1, WINDOW: 2, DOOR: 3 };
+  const houseTexArray = makeTextureArray([
+    makeWallCanvas(), makeRoofCanvas(), makeWindowCanvas(), makeDoorCanvas()
+  ]);
+
+  // ============ PROCEDURAL HOUSE GENERATION ============
+  const TEX_SCALE = 2.0;
+
+  function buildHouseGeometry(P, lod) {
+    const g = { pos: [], nor: [], uv: [], mat: [], idx: [] };
+
+    const W = P.W, D = P.D, H = P.H, roofH = P.roofH, ov = P.ov;
+    const hw = W * 0.5, hd = D * 0.5;
+
+    function quad(p0, p1, p2, p3, n, uvs, m) {
+      const base = g.pos.length / 3;
+      g.pos.push(p0[0],p0[1],p0[2], p1[0],p1[1],p1[2], p2[0],p2[1],p2[2], p3[0],p3[1],p3[2]);
+      for (let i = 0; i < 4; i++) g.nor.push(n[0], n[1], n[2]);
+      g.uv.push(uvs[0][0],uvs[0][1], uvs[1][0],uvs[1][1], uvs[2][0],uvs[2][1], uvs[3][0],uvs[3][1]);
+      for (let i = 0; i < 4; i++) g.mat.push(m);
+      g.idx.push(base, base+1, base+2, base, base+2, base+3);
+    }
+    function tri(p0, p1, p2, n, uvs, m) {
+      const base = g.pos.length / 3;
+      g.pos.push(p0[0],p0[1],p0[2], p1[0],p1[1],p1[2], p2[0],p2[1],p2[2]);
+      for (let i = 0; i < 3; i++) g.nor.push(n[0], n[1], n[2]);
+      g.uv.push(uvs[0][0],uvs[0][1], uvs[1][0],uvs[1][1], uvs[2][0],uvs[2][1]);
+      for (let i = 0; i < 3; i++) g.mat.push(m);
+      g.idx.push(base, base+1, base+2);
+    }
+    function boxUV(a, b) {
+      return [[0,0],[a/TEX_SCALE,0],[a/TEX_SCALE,b/TEX_SCALE],[0,b/TEX_SCALE]];
+    }
+    function box(cx, cy, cz, sx, sy, sz, m) {
+      const x0=cx-sx*0.5, x1=cx+sx*0.5;
+      const y0=cy-sy*0.5, y1=cy+sy*0.5;
+      const z0=cz-sz*0.5, z1=cz+sz*0.5;
+      quad([x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1],[0,0,1],  boxUV(sx,sy), m);
+      quad([x1,y0,z0],[x0,y0,z0],[x0,y1,z0],[x1,y1,z0],[0,0,-1], boxUV(sx,sy), m);
+      quad([x0,y0,z0],[x0,y0,z1],[x0,y1,z1],[x0,y1,z0],[-1,0,0], boxUV(sz,sy), m);
+      quad([x1,y0,z1],[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[1,0,0],  boxUV(sz,sy), m);
+      quad([x0,y1,z1],[x1,y1,z1],[x1,y1,z0],[x0,y1,z0],[0,1,0],  boxUV(sx,sz), m);
+      quad([x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1],[0,-1,0], boxUV(sx,sz), m);
+    }
+
+    quad([-hw,0,-hd],[hw,0,-hd],[hw,H,-hd],[-hw,H,-hd],[0,0,-1],
+         [[0,0],[W/TEX_SCALE,0],[W/TEX_SCALE,H/TEX_SCALE],[0,H/TEX_SCALE]], MAT.WALL);
+    quad([hw,0,hd],[-hw,0,hd],[-hw,H,hd],[hw,H,hd],[0,0,1],
+         [[0,0],[W/TEX_SCALE,0],[W/TEX_SCALE,H/TEX_SCALE],[0,H/TEX_SCALE]], MAT.WALL);
+    quad([-hw,0,hd],[-hw,0,-hd],[-hw,H,-hd],[-hw,H,hd],[-1,0,0],
+         [[0,0],[D/TEX_SCALE,0],[D/TEX_SCALE,H/TEX_SCALE],[0,H/TEX_SCALE]], MAT.WALL);
+    quad([hw,0,-hd],[hw,0,hd],[hw,H,hd],[hw,H,-hd],[1,0,0],
+         [[0,0],[D/TEX_SCALE,0],[D/TEX_SCALE,H/TEX_SCALE],[0,H/TEX_SCALE]], MAT.WALL);
+
+    tri([-hw,H,-hd],[hw,H,-hd],[0,H+roofH,-hd],[0,0,-1],
+        [[0,H/TEX_SCALE],[W/TEX_SCALE,H/TEX_SCALE],[W*0.5/TEX_SCALE,(H+roofH)/TEX_SCALE]], MAT.WALL);
+    tri([hw,H,hd],[-hw,H,hd],[0,H+roofH,hd],[0,0,1],
+        [[0,H/TEX_SCALE],[W/TEX_SCALE,H/TEX_SCALE],[W*0.5/TEX_SCALE,(H+roofH)/TEX_SCALE]], MAT.WALL);
+
+    const slopeX = hw + ov;
+    const slopeLen = Math.hypot(slopeX, roofH);
+    const lN = [-roofH / slopeLen, slopeX / slopeLen, 0.0];
+    const rN = [ roofH / slopeLen, slopeX / slopeLen, 0.0];
+    const roofDepth = D + 2 * ov;
+    const sT = slopeLen / TEX_SCALE, dT = roofDepth / TEX_SCALE;
+
+    quad([-slopeX,H,-hd-ov],[0,H+roofH,-hd-ov],[0,H+roofH,hd+ov],[-slopeX,H,hd+ov], lN,
+         [[0,0],[0,sT],[dT,sT],[dT,0]], MAT.ROOF);
+    quad([0,H+roofH,-hd-ov],[slopeX,H,-hd-ov],[slopeX,H,hd+ov],[0,H+roofH,hd+ov], rN,
+         [[0,0],[0,sT],[dT,sT],[dT,0]], MAT.ROOF);
+
+    if (lod) return g;
+
+    const eps = 0.02;
+    const winW = P.winW, winH = P.winH, dens = P.windowDensity;
+
+    const colsZ = Math.max(1, Math.round(W / 3.6));
+    const rowsZ = Math.max(1, Math.round((H - 1.8) / 2.8));
+    const colStepZ = W / colsZ;
+    const rowStepZ = (H - 1.8) / rowsZ;
+    for (const sideZ of [-1, 1]) {
+      const z = sideZ * (hd + eps);
+      for (let ci = 0; ci < colsZ; ci++) {
+        const x = -hw + colStepZ * (ci + 0.5);
+        for (let ri = 0; ri < rowsZ; ri++) {
+          const y = 0.9 + rowStepZ * (ri + 0.5);
+          if (sideZ === -1 && ri === 0 && Math.abs(x) < P.doorW * 0.85) continue;
+          if (Math.random() > dens) continue;
+          quad([x-winW*0.5, y-winH*0.5, z], [x+winW*0.5, y-winH*0.5, z],
+               [x+winW*0.5, y+winH*0.5, z], [x-winW*0.5, y+winH*0.5, z],
+               [0,0,sideZ], [[0,0],[1,0],[1,1],[0,1]], MAT.WINDOW);
+        }
+      }
+    }
+
+    const colsX = Math.max(1, Math.round(D / 3.6));
+    const rowsX = Math.max(1, Math.round((H - 1.8) / 2.8));
+    const colStepX = D / colsX;
+    const rowStepX = (H - 1.8) / rowsX;
+    for (const sideX of [-1, 1]) {
+      const x = sideX * (hw + eps);
+      for (let ci = 0; ci < colsX; ci++) {
+        const z = -hd + colStepX * (ci + 0.5);
+        for (let ri = 0; ri < rowsX; ri++) {
+          const y = 0.9 + rowStepX * (ri + 0.5);
+          if (Math.random() > dens) continue;
+          quad([x, y-winH*0.5, z-winW*0.5], [x, y-winH*0.5, z+winW*0.5],
+               [x, y+winH*0.5, z+winW*0.5], [x, y+winH*0.5, z-winW*0.5],
+               [sideX,0,0], [[0,0],[1,0],[1,1],[0,1]], MAT.WINDOW);
+        }
+      }
+    }
+
+    const dz = -hd - eps - 0.004;
+    quad([-P.doorW*0.5, 0, dz], [P.doorW*0.5, 0, dz],
+         [P.doorW*0.5, P.doorH, dz], [-P.doorW*0.5, P.doorH, dz],
+         [0,0,-1], [[0,0],[1,0],[1,1],[0,1]], MAT.DOOR);
+
+    if (P.chimney) {
+      const cx = P.chimneySide * hw * 0.45;
+      const cz = 0;
+      const cw = 0.55 + Math.random() * 0.35;
+      const topY = H + roofH + 0.55 + Math.random() * 0.5;
+      box(cx, (H + topY) * 0.5, cz, cw, topY - H, cw, MAT.WALL);
+    }
+
+    return g;
+  }
+
+  function createHouseMesh(g, instBuf) {
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+
+    function attrib(arr, loc, size) {
+      const b = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+    }
+    attrib(g.pos, 0, 3);
+    attrib(g.nor, 1, 3);
+    attrib(g.uv,  2, 2);
+    attrib(g.mat, 3, 1);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, instBuf);
+    gl.enableVertexAttribArray(4);
+    gl.vertexAttribPointer(4, 3, gl.FLOAT, false, 20, 0);
+    gl.vertexAttribDivisor(4, 1);
+    gl.enableVertexAttribArray(5);
+    gl.vertexAttribPointer(5, 2, gl.FLOAT, false, 20, 12);
+    gl.vertexAttribDivisor(5, 1);
+
+    const ib = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(g.idx), gl.STATIC_DRAW);
+
+    gl.bindVertexArray(null);
+    return { vao, count: g.idx.length };
+  }
+
+  const INSTANCE_CAP = 256;
+
+  function makePrototype(rnd) {
+    const P = {
+      W: 6.0 + rnd() * 5.0,
+      D: 5.0 + rnd() * 4.0,
+      H: 4.4 + rnd() * 3.6,
+      roofH: 1.5 + rnd() * 1.7,
+      ov: 0.30 + rnd() * 0.35,
+      winW: 1.0 + rnd() * 0.7,
+      winH: 1.2 + rnd() * 0.9,
+      doorW: 1.1 + rnd() * 0.5,
+      doorH: 2.0 + rnd() * 0.45,
+      windowDensity: 0.55 + rnd() * 0.40,
+      chimney: rnd() < 0.55,
+      chimneySide: rnd() < 0.5 ? -1 : 1
+    };
+    P.hw = P.W * 0.5;
+    P.hd = P.D * 0.5;
+    P.height = P.H + P.roofH;
+
+    const instBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, instBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, INSTANCE_CAP * 5 * 4, gl.DYNAMIC_DRAW);
+
+    const fullGeo = buildHouseGeometry(P, false);
+    const lodGeo  = buildHouseGeometry(P, true);
+
+    return {
+      P: P,
+      hw: P.hw,
+      hd: P.hd,
+      H: P.H,
+      roofH: P.roofH,
+      height: P.height,
+      instBuf: instBuf,
+      mesh:    createHouseMesh(fullGeo, instBuf),
+      lodMesh: createHouseMesh(lodGeo,  instBuf),
+      mainFull: [],
+      mainLod:  [],
+      shadow:   [],
+      scratch:  new Float32Array(INSTANCE_CAP * 5)
+    };
+  }
+
+  // ============ CPU TERRAIN HEIGHT ============
+  function hashUJS(x) {
+    x = x >>> 0;
+    x ^= x >>> 16;
+    x = Math.imul(x, 0x7feb352d) >>> 0;
+    x ^= x >>> 15;
+    x = Math.imul(x, 0x846ca68b) >>> 0;
+    x ^= x >>> 16;
+    return x >>> 0;
+  }
+  function rand2JS(x, y, seed) {
+    const h = hashUJS(
+      (Math.imul(x, 1597334677) ^ Math.imul(y, 3812015801) ^ Math.imul(seed, 2654435761)) >>> 0
+    );
+    return h / 4294967296;
+  }
+  function noise2JS(x, y, seed) {
+    const ix = Math.floor(x), iy = Math.floor(y);
+    const fx = x - ix, fy = y - iy;
+    const ux = fx * fx * (3 - 2 * fx);
+    const uy = fy * fy * (3 - 2 * fy);
+    const a = rand2JS(ix,     iy,     seed);
+    const b = rand2JS(ix + 1, iy,     seed);
+    const c = rand2JS(ix,     iy + 1, seed);
+    const d = rand2JS(ix + 1, iy + 1, seed);
+    const top = a + (b - a) * ux;
+    const bot = c + (d - c) * ux;
+    return top + (bot - top) * uy;
+  }
+  function terrainHeightJS(x, z) {
+    const sx = (x * TERRAIN.p) / TERRAIN.m;
+    const sz = (z * TERRAIN.p) / TERRAIN.m;
+    const n1 = noise2JS(sx,                   sz,                   TERRAIN.seed);
+    const n2 = noise2JS(sx * 2.7 + 31.4,      sz * 2.7 - 17.2,      TERRAIN.seed + 101);
+    const n3 = noise2JS(sx * 6.1 - 8.8,       sz * 6.1 + 55.5,      TERRAIN.seed + 202);
+    const n4 = noise2JS(sx * 13.3 + 2.2,      sz * 13.3 - 7.7,      TERRAIN.seed + 303);
+    return TERRAIN.k * (n1 * 0.52 + n2 * 0.24 + n3 * 0.14 + n4 * 0.10);
+  }
+
+  // ============ RNG ============
+  function mulberry32(a) {
+    return function() {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  const rng = mulberry32(20240614);
+
+  // ============ HOUSE PLACEMENT ============
+  const NUM_PROTOTYPES = 7;
+  const prototypes = [];
+  for (let i = 0; i < NUM_PROTOTYPES; i++) prototypes.push(makePrototype(rng));
+
+  function houseBaseHeight(x, z, hw, hd) {
+    let minH = terrainHeightJS(x, z);
+    minH = Math.min(minH, terrainHeightJS(x - hw, z - hd));
+    minH = Math.min(minH, terrainHeightJS(x + hw, z - hd));
+    minH = Math.min(minH, terrainHeightJS(x - hw, z + hd));
+    minH = Math.min(minH, terrainHeightJS(x + hw, z + hd));
+    return minH;
+  }
+
+  function houseSiteRoughness(x, z, hw, hd) {
+    const hs = [
+      terrainHeightJS(x, z),
+      terrainHeightJS(x - hw, z - hd),
+      terrainHeightJS(x + hw, z - hd),
+      terrainHeightJS(x - hw, z + hd),
+      terrainHeightJS(x + hw, z + hd)
+    ];
+    return Math.max.apply(null, hs) - Math.min.apply(null, hs);
+  }
+
+  const houseInstances = [];
+  const placedXZ = [];
+
+  function placeHouse(proto, x, z, rot, scale, force) {
+    const hw = proto.hw * scale;
+    const hd = proto.hd * scale;
+
+    if (!force) {
+      if (houseSiteRoughness(x, z, hw, hd) > 2.2) return false;
+      for (let i = 0; i < placedXZ.length; i++) {
+        const dx = placedXZ[i][0] - x;
+        const dz = placedXZ[i][1] - z;
+        const rr = 30 + Math.max(hw, hd) + placedXZ[i][2];
+        if (dx * dx + dz * dz < rr * rr) return false;
+      }
+    }
+
+    const y = houseBaseHeight(x, z, hw, hd) - 0.35;
+    const totalH = proto.height * scale;
+
+    houseInstances.push({
+      proto: proto,
+      x: x, y: y, z: z,
+      rot: rot,
+      scale: scale,
+      hw: hw,
+      hd: hd,
+      radius: Math.hypot(hw, hd) + totalH,
+      cy: y + totalH * 0.5
+    });
+    placedXZ.push([x, z, Math.max(hw, hd)]);
+    return true;
+  }
+
+  placeHouse(prototypes[0], 1.0, 60.0, 0, 1.0, true);
+  placedXZ.push([0.0, 78.0, 0.0]);
+
+  const NUM_EXTRA    = 100;
+  const PLACE_RADIUS = 360;
+
+  let attempts = 0;
+  while (houseInstances.length < 1 + NUM_EXTRA && attempts < 12000) {
+    attempts++;
+    const ang = rng() * Math.PI * 2;
+    const rad = 45 + rng() * PLACE_RADIUS;
+    const x = Math.cos(ang) * rad;
+    const z = Math.sin(ang) * rad;
+    const proto = prototypes[(rng() * prototypes.length) | 0];
+    const scale = 0.85 + rng() * 0.32;
+    const rot   = rng() * Math.PI * 2;
+    placeHouse(proto, x, z, rot, scale, false);
+  }
+
+  console.log('Houses placed:', houseInstances.length,
+              'across', prototypes.length, 'prototypes after', attempts, 'attempts');
+
+  // ============================================================
+  // ============ THE ENTITY ===========
+  // ============================================================
+  function buildEntityForm(rnd) {
+    const pos = [], idx = [], hn = [];
+    const C = [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],
+               [-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]];
+    const F = [[0,1,2,3],[5,4,7,6],[4,0,3,7],[1,5,6,2],[3,2,6,7],[4,5,1,0]];
+
+    function box(cx, cy, cz, sx, sy, sz) {
+      const base = pos.length / 3;
+      for (let i = 0; i < 8; i++) {
+        const px = cx + C[i][0] * sx * 0.5;
+        const py = cy + C[i][1] * sy * 0.5;
+        const pz = cz + C[i][2] * sz * 0.5;
+        pos.push(px, py, pz);
+        hn.push(py);
+      }
+      for (let f = 0; f < 6; f++) {
+        const q = F[f];
+        idx.push(base + q[0], base + q[1], base + q[2],
+                 base + q[0], base + q[2], base + q[3]);
+      }
+    }
+
+    const legLen   = 0.70 + rnd() * 1.50;
+    const legThick = 0.080 + rnd() * 0.090;
+    const twoLegs  = rnd() > 0.16;
+    const spread   = 0.07 + rnd() * 0.19;
+    if (twoLegs) {
+      box(-spread, legLen * 0.5, 0, legThick, legLen, legThick);
+      box( spread, legLen * 0.5, 0, legThick, legLen, legThick);
+    } else {
+      box(0, legLen * 0.5, 0, legThick * 1.8, legLen, legThick * 1.8);
+    }
+
+    let y = legLen;
+    const segs = 1 + ((rnd() * 3) | 0);
+    const torsoW = 0.22 + rnd() * 0.26;
+    for (let i = 0; i < segs; i++) {
+      const h = 0.18 + rnd() * 0.34;
+      const w = torsoW * (1.0 - i * 0.11);
+      box(0, y + h * 0.5, 0, w, h, w * (0.48 + rnd() * 0.22));
+      y += h;
+    }
+    const shoulderY = y;
+
+    const armCount = (rnd() * 5) | 0;
+    const armLen   = 0.55 + rnd() * 1.55;
+    const armThick = 0.060 + rnd() * 0.060;
+    for (let i = 0; i < armCount; i++) {
+      const side = (i % 2 === 0) ? -1 : 1;
+      const tier = Math.floor(i / 2);
+      const off  = side * (torsoW * 0.5 + armThick * 0.7 + tier * 0.10);
+      box(off, shoulderY - armLen * 0.5 + 0.04, 0, armThick, armLen, armThick);
+    }
+
+    const neckLen = rnd() * 0.85;
+    const neckW   = 0.075 + rnd() * 0.050;
+    if (neckLen > 0.04) box(0, shoulderY + neckLen * 0.5, 0, neckW, neckLen, neckW);
+
+    const headH   = 0.14 + rnd() * 0.36;
+    const headW   = 0.14 + rnd() * 0.15;
+    const headY   = shoulderY + neckLen;
+    const hasHead = rnd() > 0.06;
+    if (hasHead) box(0, headY + headH * 0.5, 0, headW, headH, headW);
+
+    let totalH = headY + (hasHead ? headH : 0);
+    if (totalH < 0.5) totalH = 0.5;
+
+    const target = 2.45 + rnd() * 1.15;
+    let k = target / totalH;
+    k = Math.max(0.55, Math.min(1.70, k));
+    for (let i = 0; i < pos.length; i++) pos[i] *= k;
+
+    for (let i = 0; i < hn.length; i++) {
+      hn[i] = Math.max(0, Math.min(1, hn[i] / totalH));
+    }
+
+    return { pos: pos, idx: idx, hn: hn, height: totalH * k };
+  }
+
+  function createEntityFormMesh(g) {
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+
+    const vb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(g.pos), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+
+    const hb = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, hb);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(g.hn), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 0, 0);
+
+    const ib = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(g.idx), gl.STATIC_DRAW);
+
+    gl.bindVertexArray(null);
+    return { vao: vao, count: g.idx.length };
+  }
+
+  const ENTITY_FORM_COUNT = 14;
+  const entityForms = [];
+  for (let i = 0; i < ENTITY_FORM_COUNT; i++) {
+    const g = buildEntityForm(rng);
+    entityForms.push({
+      mesh:    createEntityFormMesh(g),
+      height:  g.height,
+      scaleXZ: 0.72 + rng() * 0.50,
+      scaleY:  0.85 + rng() * 0.45
+    });
+  }
+
+  const ENT = {
+    MIN_DIST:  30,
+    MAX_DIST:  190,
+    WALL_OFF:  0.50,
+    PEEK_OUT:  3.6,
+    RISE_TIME: 3.0,   // it unfolds far too slowly
+    FALL_TIME: 0.30,  // and is gone before you finish blinking
+    HOLD_MIN:  1.2,
+    HOLD_MAX:  5.5,
+    HIDE_MIN:  1.0,
+    HIDE_MAX:  4.5,
+    SPOT_DOT:  0.988,
+    SPOT_TIME: 0.55
+  };
+
+  const entity = {
+    houseIdx: -1,
+    formIdx: 0,
+    state: 'hidden',
+    p: 0,
+    timer: 3.0,
+    axis: 'x',
+    wallSign: 1,
+    tanSign: 1,
+    spotted: 0,
+    matrix: mat4.create(),
+    world: [0, 0, 0],
+
+    animTime: 0,
+    animSeed: 0,
+    sway: 0.06,
+    swaySpeed: 0.8,
+    breath: 0.4,
+    headTilt: 0.15,
+    shudderTimer: 3,
+    shudderBurst: 0,
+    freezeTimer: 10,
+    freezeDur: 0
+  };
+
+  function entityPickHouse(exclude) {
+    const px = player.pos[0], pz = player.pos[2];
+    const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw);
+    const minD2 = ENT.MIN_DIST * ENT.MIN_DIST;
+    const maxD2 = ENT.MAX_DIST * ENT.MAX_DIST;
+    const cands = [];
+    for (let i = 0; i < houseInstances.length; i++) {
+      if (i === exclude) continue;
+      const h = houseInstances[i];
+      const dx = h.x - px, dz = h.z - pz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < minD2 || d2 > maxD2) continue;
+      const d = Math.sqrt(d2);
+      const align = (dx / d) * fx + (dz / d) * fz;
+      cands.push({ i: i, score: align * 2.2 + Math.random() * 1.4 });
+    }
+    if (!cands.length) return false;
+    cands.sort((a, b) => b.score - a.score);
+    const top = Math.min(6, cands.length);
+    entity.houseIdx = cands[(Math.random() * top) | 0].i;
+    return true;
+  }
+
+  function entityPickForm() {
+    if (entityForms.length < 2) return;
+    let f;
+    do { f = (Math.random() * entityForms.length) | 0; }
+    while (f === entity.formIdx);
+    entity.formIdx = f;
+  }
+
+  function entityRelocate() {
+    const old = entity.houseIdx;
+    entity.state = 'hidden';
+    entity.p = 0;
+    entity.spotted = 0;
+    entity.timer = ENT.HIDE_MIN + Math.random() * (ENT.HIDE_MAX - ENT.HIDE_MIN);
+    entityPickForm();
+
+    entity.animTime     = 0;
+    entity.animSeed     = Math.random() * 100;
+    entity.sway         = 0.030 + Math.random() * 0.085;
+    entity.swaySpeed    = 0.30  + Math.random() * 0.70;
+    entity.breath       = 0.20  + Math.random() * 0.60;
+    entity.headTilt     = 0.10  + Math.random() * 0.30;
+    entity.shudderTimer = 4 + Math.random() * 8;
+    entity.shudderBurst = 0;
+    entity.freezeTimer  = 6 + Math.random() * 12;
+    entity.freezeDur    = 0;
+
+    if (!entityPickHouse(old)) entity.houseIdx = -1;
+  }
+
+  function entityStartPeek() {
+    const h = houseInstances[entity.houseIdx];
+    const c = Math.cos(h.rot), s = Math.sin(h.rot);
+    const dx = player.pos[0] - h.x;
+    const dz = player.pos[2] - h.z;
+    const lx = dx * c - dz * s;
+    const lz = dx * s + dz * c;
+    if (Math.abs(lx) > Math.abs(lz)) {
+      entity.axis = 'z';
+      entity.wallSign = lx > 0 ? -1 : 1;
+      entity.tanSign  = lz >= 0 ? 1 : -1;
+    } else {
+      entity.axis = 'x';
+      entity.wallSign = lz > 0 ? -1 : 1;
+      entity.tanSign  = lx >= 0 ? 1 : -1;
+    }
+    entity.state = 'peek';
+    entity.p = 0;
+    entity.timer = ENT.HOLD_MIN + Math.random() * (ENT.HOLD_MAX - ENT.HOLD_MIN);
+    entity.spotted = 0;
+  }
+
+  function updateEntity(dt) {
+    if (houseInstances.length === 0) return;
+
+    if (entity.houseIdx < 0) {
+      entity.timer -= dt;
+      if (entity.timer > 0) return;
+      if (!entityPickHouse(-1)) { entity.timer = 1.5; return; }
+      entity.state = 'hidden';
+      entity.p = 0;
+      entity.timer = ENT.HIDE_MIN + Math.random() * 3.0;
+    }
+
+    const h = houseInstances[entity.houseIdx];
+    const pdx = player.pos[0] - h.x, pdz = player.pos[2] - h.z;
+    if (Math.hypot(pdx, pdz) < ENT.MIN_DIST * 0.85) {
+      entityRelocate();
+      return;
+    }
+
+    if (entity.state === 'hidden') {
+      entity.timer -= dt;
+      if (entity.timer <= 0) entityStartPeek();
+    } else if (entity.state === 'peek') {
+      entity.p += dt / ENT.RISE_TIME;
+      if (entity.p >= 1) { entity.p = 1; entity.state = 'hold'; }
+    } else if (entity.state === 'hold') {
+      entity.timer -= dt;
+      if (entity.timer <= 0) entity.state = 'fall';
+    } else if (entity.state === 'fall') {
+      entity.p -= dt / ENT.FALL_TIME;
+      if (entity.p <= 0) {
+        entity.p = 0;
+        entity.state = 'hidden';
+        entity.timer = ENT.HIDE_MIN + Math.random() * (ENT.HIDE_MAX - ENT.HIDE_MIN);
+      }
+    }
+
+    entity.freezeTimer -= dt;
+    if (entity.freezeDur > 0) {
+      entity.freezeDur -= dt;
+    } else {
+      if (entity.freezeTimer <= 0) {
+        entity.freezeTimer = 8 + Math.random() * 16;
+        entity.freezeDur    = 1.2 + Math.random() * 3.0;
+      }
+      entity.animTime += dt;
+    }
+    entity.shudderTimer -= dt;
+    if (entity.shudderTimer <= 0) {
+      entity.shudderTimer = 5 + Math.random() * 12;
+      entity.shudderBurst = 1.0;
+    }
+    entity.shudderBurst = Math.max(0, entity.shudderBurst - dt * 0.9);
+
+    const c = Math.cos(h.rot), s = Math.sin(h.rot);
+    const hw = h.hw, hd = h.hd;
+    const p = entity.p;
+    let lx, lz;
+    if (entity.axis === 'z') {
+      const span = hd;
+      lx = entity.wallSign * (hw + ENT.WALL_OFF);
+      lz = entity.tanSign * (span * 0.30 + p * (span * 0.70 + ENT.PEEK_OUT));
+    } else {
+      const span = hw;
+      lz = entity.wallSign * (hd + ENT.WALL_OFF);
+      lx = entity.tanSign * (span * 0.30 + p * (span * 0.70 + ENT.PEEK_OUT));
+    }
+    const wx = h.x + lx * c + lz * s;
+    const wz = h.z - lx * s + lz * c;
+    const gy = Math.max(terrainHeightJS(wx, wz), h.y) - 0.25;
+
+    entity.world[0] = wx; entity.world[1] = gy; entity.world[2] = wz;
+
+    const form    = entityForms[entity.formIdx];
+    const faceYaw = Math.atan2(player.pos[0] - wx, player.pos[2] - wz);
+
+    let stateAmp = 1.0;
+    if (entity.state === 'peek')      stateAmp = 0.55;
+    else if (entity.state === 'hold') stateAmp = 1.35;
+    else if (entity.state === 'fall') stateAmp = 1.60;
+
+    const at = entity.animTime;
+    const bobY   = Math.sin(at * 0.30 + entity.animSeed)       * 0.045 * stateAmp;
+    const leanX  = Math.sin(at * 0.42 + entity.animSeed * 1.3) * 0.035 * stateAmp;
+    const leanZ  = Math.cos(at * 0.31 + entity.animSeed * 0.7) * 0.035 * stateAmp;
+    const yawWob = Math.sin(at * 0.24 + entity.animSeed * 0.5) * 0.075 * stateAmp;
+
+    const mm = entity.matrix;
+    mat4.identity(mm);
+    mat4.translate(mm, mm, [wx, gy + bobY, wz]);
+    mat4.rotateY(mm, mm, faceYaw + yawWob);
+    mat4.rotateX(mm, mm, leanX);
+    mat4.rotateZ(mm, mm, leanZ);
+    mat4.scale(mm, mm, [form.scaleXZ, form.scaleY, form.scaleXZ]);
+
+    const eyeY = gy + form.height * form.scaleY * 0.85;
+    const ex = wx - player.pos[0];
+    const ey = eyeY - player.pos[1];
+    const ez = wz - player.pos[2];
+    const el = Math.hypot(ex, ey, ez);
+    if (el > 28 && p > 0.55) {
+      const cp = Math.cos(player.pitch);
+      const vfx = Math.sin(player.yaw) * cp;
+      const vfy = Math.sin(player.pitch);
+      const vfz = -Math.cos(player.yaw) * cp;
+      const dot = (ex * vfx + ey * vfy + ez * vfz) / el;
+      if (dot > ENT.SPOT_DOT) {
+        entity.spotted += dt;
+        if (entity.spotted > ENT.SPOT_TIME) { entityRelocate(); return; }
+      } else {
+        entity.spotted = Math.max(0, entity.spotted - dt * 0.7);
+      }
+    } else {
+      entity.spotted = Math.max(0, entity.spotted - dt * 0.7);
+    }
+  }
+
+  function drawEntity() {
+    if (entity.houseIdx < 0) return;
+    const form = entityForms[entity.formIdx];
+    gl.useProgram(entityProg);
+    gl.uniformMatrix4fv(entityU.model,            false, entity.matrix);
+    gl.uniformMatrix4fv(entityU.viewMatrix,       false, viewMatrix);
+    gl.uniformMatrix4fv(entityU.projectionMatrix, false, projectionMatrix);
+    gl.uniform3fv(entityU.cameraWorld,  player.pos);
+    gl.uniform3fv(entityU.horizonColor, HORIZON_COLOR);
+
+    gl.uniform1f(entityU.time,      entity.animTime);
+    gl.uniform1f(entityU.sway,      entity.sway + entity.shudderBurst * 0.18);
+    gl.uniform1f(entityU.swaySpeed, entity.swaySpeed);
+    gl.uniform1f(entityU.breath,    entity.breath);
+    gl.uniform1f(entityU.headTilt,  entity.headTilt + entity.shudderBurst * 0.10);
+    gl.uniform1f(entityU.seed,      entity.animSeed);
+
+    gl.bindVertexArray(form.mesh.vao);
+    gl.drawElements(gl.TRIANGLES, form.mesh.count, gl.UNSIGNED_SHORT, 0);
+  }
+
+  // ============ UNIFORM LOOKUPS ============
+  const shadowU = {
+    lightViewProj: gl.getUniformLocation(shadowProg, 'u_lightViewProj'),
+    k: gl.getUniformLocation(shadowProg, 'u_k'),
+    p: gl.getUniformLocation(shadowProg, 'u_p'),
+    m: gl.getUniformLocation(shadowProg, 'u_m'),
+    seed: gl.getUniformLocation(shadowProg, 'u_seed'),
+    cameraPos: gl.getUniformLocation(shadowProg, 'u_cameraPos'),
+    cellSize: gl.getUniformLocation(shadowProg, 'u_cellSize'),
+    gridSize: gl.getUniformLocation(shadowProg, 'u_gridSize'),
+  };
+  const mainU = {
+    modelViewMatrix: gl.getUniformLocation(mainProg, 'u_modelViewMatrix'),
+    projectionMatrix: gl.getUniformLocation(mainProg, 'u_projectionMatrix'),
+    lightViewProj: gl.getUniformLocation(mainProg, 'u_lightViewProj'),
+    k: gl.getUniformLocation(mainProg, 'u_k'),
+    p: gl.getUniformLocation(mainProg, 'u_p'),
+    m: gl.getUniformLocation(mainProg, 'u_m'),
+    seed: gl.getUniformLocation(mainProg, 'u_seed'),
+    cameraPos: gl.getUniformLocation(mainProg, 'u_cameraPos'),
+    cellSize: gl.getUniformLocation(mainProg, 'u_cellSize'),
+    gridSize: gl.getUniformLocation(mainProg, 'u_gridSize'),
+    texture: gl.getUniformLocation(mainProg, 'u_texture'),
+    shadowMap: gl.getUniformLocation(mainProg, 'u_shadowMap'),
+    sunDir: gl.getUniformLocation(mainProg, 'u_sunDir'),
+    sunColor: gl.getUniformLocation(mainProg, 'u_sunColor'),
+    skyColor: gl.getUniformLocation(mainProg, 'u_skyColor'),
+    groundColor: gl.getUniformLocation(mainProg, 'u_groundColor'),
+    horizonColor: gl.getUniformLocation(mainProg, 'u_horizonColor'),
+    cameraWorld: gl.getUniformLocation(mainProg, 'u_cameraWorld'),
+    shadowBias: gl.getUniformLocation(mainProg, 'u_shadowBias'),
+    shadowRadius: gl.getUniformLocation(mainProg, 'u_shadowRadius'),
+    shadowEnabled: gl.getUniformLocation(mainProg, 'u_shadowEnabled'),
+    grassBump: gl.getUniformLocation(mainProg, 'u_grassBump'),
+  };
+  const skyU = {
+    invViewProj: gl.getUniformLocation(skyProg, 'u_invViewProj'),
+    cameraWorld: gl.getUniformLocation(skyProg, 'u_cameraWorld'),
+    sunDir: gl.getUniformLocation(skyProg, 'u_sunDir'),
+    sunColor: gl.getUniformLocation(skyProg, 'u_sunColor'),
+    skyColor: gl.getUniformLocation(skyProg, 'u_skyColor'),
+    horizonColor: gl.getUniformLocation(skyProg, 'u_horizonColor'),
+    time: gl.getUniformLocation(skyProg, 'u_time'),
+  };
+  const houseShadowU = {
+    lightViewProj: gl.getUniformLocation(houseShadowProg, 'u_lightViewProj'),
+  };
+  const houseU = {
+    viewMatrix: gl.getUniformLocation(houseProg, 'u_viewMatrix'),
+    projectionMatrix: gl.getUniformLocation(houseProg, 'u_projectionMatrix'),
+    lightViewProj: gl.getUniformLocation(houseProg, 'u_lightViewProj'),
+    texArray: gl.getUniformLocation(houseProg, 'u_texArray'),
+    shadowMap: gl.getUniformLocation(houseProg, 'u_shadowMap'),
+    sunDir: gl.getUniformLocation(houseProg, 'u_sunDir'),
+    sunColor: gl.getUniformLocation(houseProg, 'u_sunColor'),
+    skyColor: gl.getUniformLocation(houseProg, 'u_skyColor'),
+    groundColor: gl.getUniformLocation(houseProg, 'u_groundColor'),
+    horizonColor: gl.getUniformLocation(houseProg, 'u_horizonColor'),
+    cameraWorld: gl.getUniformLocation(houseProg, 'u_cameraWorld'),
+    shadowBias: gl.getUniformLocation(houseProg, 'u_shadowBias'),
+    shadowEnabled: gl.getUniformLocation(houseProg, 'u_shadowEnabled'),
+  };
+  const postU = {
+    scene:       gl.getUniformLocation(postProg, 'u_scene'),
+    resolution:  gl.getUniformLocation(postProg, 'u_resolution'),
+    time:        gl.getUniformLocation(postProg, 'u_time'),
+    curvature:   gl.getUniformLocation(postProg, 'u_curvature'),
+    blur:        gl.getUniformLocation(postProg, 'u_blur'),
+    scanline:    gl.getUniformLocation(postProg, 'u_scanline'),
+    aberration:  gl.getUniformLocation(postProg, 'u_aberration'),
+    noise:       gl.getUniformLocation(postProg, 'u_noise'),
+    vignette:    gl.getUniformLocation(postProg, 'u_vignette'),
+    flicker:     gl.getUniformLocation(postProg, 'u_flicker'),
+    mask:        gl.getUniformLocation(postProg, 'u_mask'),
+    glitch:      gl.getUniformLocation(postProg, 'u_glitch'),
+    warp:        gl.getUniformLocation(postProg, 'u_warp'),
+    dread:       gl.getUniformLocation(postProg, 'u_dread'),
+  };
+  const entityU = {
+    model:            gl.getUniformLocation(entityProg, 'u_model'),
+    viewMatrix:       gl.getUniformLocation(entityProg, 'u_viewMatrix'),
+    projectionMatrix: gl.getUniformLocation(entityProg, 'u_projectionMatrix'),
+    cameraWorld:      gl.getUniformLocation(entityProg, 'u_cameraWorld'),
+    horizonColor:     gl.getUniformLocation(entityProg, 'u_horizonColor'),
+    time:             gl.getUniformLocation(entityProg, 'u_time'),
+    sway:             gl.getUniformLocation(entityProg, 'u_sway'),
+    swaySpeed:        gl.getUniformLocation(entityProg, 'u_swaySpeed'),
+    breath:           gl.getUniformLocation(entityProg, 'u_breath'),
+    headTilt:         gl.getUniformLocation(entityProg, 'u_headTilt'),
+    seed:             gl.getUniformLocation(entityProg, 'u_seed'),
+  };
+
+  // ============ CRT TUNING ============
+  const CRT = {
+    curvature:  0.42,
+    blur:       3.4,
+    scanline:   0.72,
+    aberration: 0.009,
+    noise:      0.14,
+    vignette:   1.05,
+    flicker:    0.045,
+    mask:       0.55
+  };
+
+  // ============ PLAYER / CAMERA ============
+  const player = {
+    pos:    [0, 0, 78],
+    target: [0, 0, 78],
+    yaw: 0,
+    pitch: -0.05,
+    eye: 2.7
+  };
+
+  const projectionMatrix = mat4.create();
+  const viewMatrix       = mat4.create();
+  const modelViewMatrix  = mat4.create();
+  const lightView        = mat4.create();
+  const lightProj        = mat4.create();
+  const lightViewProj    = mat4.create();
+  const viewProj         = mat4.create();
+  const invViewProj      = mat4.create();
+
+  // light comes from a ceiling you cannot see
+  const sunDir = vec3.normalize([], [0.28, 0.78, -0.24]);
+  const LIGHT_DIST  = 500;
+  const LIGHT_ORTHO = 180;
+  const lightEye    = [0, 0, 0];
+  const lightTarget = [0, 0, 0];
+
+  function updateLightMatrices() {
+    lightEye[0] = player.pos[0] + sunDir[0] * LIGHT_DIST;
+    lightEye[1] = player.pos[1] + sunDir[1] * LIGHT_DIST;
+    lightEye[2] = player.pos[2] + sunDir[2] * LIGHT_DIST;
+    lightTarget[0] = player.pos[0];
+    lightTarget[1] = player.pos[1];
+    lightTarget[2] = player.pos[2];
+    mat4.lookAt(lightView, lightEye, lightTarget, [0, 1, 0]);
+    mat4.ortho(lightProj, -LIGHT_ORTHO, LIGHT_ORTHO, -LIGHT_ORTHO, LIGHT_ORTHO, 1, LIGHT_DIST * 2);
+    mat4.multiply(lightViewProj, lightProj, lightView);
+  }
+
+  // ============ FRUSTUM CULLING ============
+  const frustumPlanes = [
+    [0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]
+  ];
+
+  function extractFrustum(m) {
+    const r0 = [m[0], m[4], m[8],  m[12]];
+    const r1 = [m[1], m[5], m[9],  m[13]];
+    const r2 = [m[2], m[6], m[10], m[14]];
+    const r3 = [m[3], m[7], m[11], m[15]];
+    function setPlane(i, a, b, sign) {
+      const p = frustumPlanes[i];
+      for (let k = 0; k < 4; k++) p[k] = a[k] + sign * b[k];
+      const len = Math.hypot(p[0], p[1], p[2]) || 1;
+      p[0] /= len; p[1] /= len; p[2] /= len; p[3] /= len;
+    }
+    setPlane(0, r3, r0,  1);
+    setPlane(1, r3, r0, -1);
+    setPlane(2, r3, r1,  1);
+    setPlane(3, r3, r1, -1);
+    setPlane(4, r3, r2,  1);
+    setPlane(5, r3, r2, -1);
+  }
+
+  function sphereInFrustum(x, y, z, r) {
+    for (let i = 0; i < 6; i++) {
+      const p = frustumPlanes[i];
+      if (p[0] * x + p[1] * y + p[2] * z + p[3] < -r) return false;
+    }
+    return true;
+  }
+
+  // ============ HOUSE DRAW DISTANCES ============
+  const MAIN_CULL_DIST2   = 330 * 330;
+  const LOD_DIST2         = 95 * 95;
+  const SHADOW_CULL_DIST2 = 200 * 200;
+
+  function gatherHouses() {
+    const px = player.pos[0], pz = player.pos[2];
+    for (let i = 0; i < prototypes.length; i++) {
+      const proto = prototypes[i];
+      proto.mainFull.length = 0;
+      proto.mainLod.length = 0;
+      proto.shadow.length = 0;
+    }
+    for (let i = 0; i < houseInstances.length; i++) {
+      const inst = houseInstances[i];
+      const dx = inst.x - px, dz = inst.z - pz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > MAIN_CULL_DIST2) continue;
+      if (!sphereInFrustum(inst.x, inst.cy, inst.z, inst.radius)) continue;
+
+      const proto = inst.proto;
+      if (d2 < LOD_DIST2) proto.mainFull.push(inst);
+      else                proto.mainLod.push(inst);
+
+      if (d2 < SHADOW_CULL_DIST2) proto.shadow.push(inst);
+    }
+  }
+
+  function uploadInstances(proto, list) {
+    const n = Math.min(list.length, INSTANCE_CAP);
+    const a = proto.scratch;
+    for (let i = 0; i < n; i++) {
+      const inst = list[i];
+      const o = i * 5;
+      a[o]     = inst.x;
+      a[o + 1] = inst.y;
+      a[o + 2] = inst.z;
+      a[o + 3] = inst.rot;
+      a[o + 4] = inst.scale;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, proto.instBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, a, 0, n * 5);
+    return n;
+  }
+
+  function drawHousesShadow() {
+    gl.useProgram(houseShadowProg);
+    gl.uniformMatrix4fv(houseShadowU.lightViewProj, false, lightViewProj);
+    for (let i = 0; i < prototypes.length; i++) {
+      const proto = prototypes[i];
+      if (!proto.shadow.length) continue;
+      const n = uploadInstances(proto, proto.shadow);
+      gl.bindVertexArray(proto.mesh.vao);
+      gl.drawElementsInstanced(gl.TRIANGLES, proto.mesh.count, gl.UNSIGNED_SHORT, 0, n);
+    }
+  }
+
+  function drawHousesMain() {
+    gl.useProgram(houseProg);
+    gl.uniformMatrix4fv(houseU.viewMatrix,       false, viewMatrix);
+    gl.uniformMatrix4fv(houseU.projectionMatrix, false, projectionMatrix);
+    gl.uniformMatrix4fv(houseU.lightViewProj,    false, lightViewProj);
+    gl.uniform3fv(houseU.sunDir,      sunDir);
+    gl.uniform3fv(houseU.sunColor,    SUN_COLOR);
+    gl.uniform3fv(houseU.skyColor,    SKY_COLOR);
+    gl.uniform3fv(houseU.groundColor, GROUND_COLOR);
+    gl.uniform3fv(houseU.horizonColor,HORIZON_COLOR);
+    gl.uniform3fv(houseU.cameraWorld, player.pos);
+    gl.uniform1f(houseU.shadowBias, 0.0016);
+    gl.uniform1i(houseU.shadowEnabled, 1);
+
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, shadowTex);
+    gl.uniform1i(houseU.shadowMap, 1);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, houseTexArray);
+    gl.uniform1i(houseU.texArray, 0);
+
+    for (let i = 0; i < prototypes.length; i++) {
+      const proto = prototypes[i];
+      if (proto.mainFull.length) {
+        const n = uploadInstances(proto, proto.mainFull);
+        gl.bindVertexArray(proto.mesh.vao);
+        gl.drawElementsInstanced(gl.TRIANGLES, proto.mesh.count, gl.UNSIGNED_SHORT, 0, n);
+      }
+      if (proto.mainLod.length) {
+        const n = uploadInstances(proto, proto.mainLod);
+        gl.bindVertexArray(proto.lodMesh.vao);
+        gl.drawElementsInstanced(gl.TRIANGLES, proto.lodMesh.count, gl.UNSIGNED_SHORT, 0, n);
+      }
+    }
+  }
+
+  // ============ INPUT / CONTROLS ============
+  const LOOK_SENS = 0.0025;
+  const PITCH_MIN = -1.45;
+  const PITCH_MAX =  1.45;
+
+  const keys = Object.create(null);
+
+  const SWALLOW = {
+    Space: 1, ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1,
+    KeyW: 1, KeyA: 1, KeyS: 1, KeyD: 1
+  };
+
+  window.addEventListener('keydown', e => {
+    if (e.repeat) { if (SWALLOW[e.code]) e.preventDefault(); return; }
+    keys[e.code] = true;
+    if (SWALLOW[e.code]) e.preventDefault();
+  }, { passive: false });
+
+  window.addEventListener('keyup', e => {
+    keys[e.code] = false;
+    if (SWALLOW[e.code]) e.preventDefault();
+  }, { passive: false });
+
+  function releaseAllKeys() { for (const k in keys) keys[k] = false; }
+  window.addEventListener('blur',  releaseAllKeys);
+  window.addEventListener('pagehide', releaseAllKeys);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) releaseAllKeys();
+  });
+
+  let dragging = false;
+  let lastX = 0, lastY = 0;
+  let dragDistance = 0;
+
+  function applyLook(dx, dy) {
+    player.yaw   += dx * LOOK_SENS;
+    player.pitch -= dy * LOOK_SENS;
+    if (player.pitch < PITCH_MIN) player.pitch = PITCH_MIN;
+    if (player.pitch > PITCH_MAX) player.pitch = PITCH_MAX;
+    if (player.yaw >  Math.PI * 2 || player.yaw < -Math.PI * 2) {
+      player.yaw = player.yaw % (Math.PI * 2);
+    }
+  }
+
+  const pointerLockSupported =
+    'pointerLockElement' in document || 'mozPointerLockElement' in document;
+
+  canvas.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    dragging = true;
+    dragDistance = 0;
+    lastX = e.clientX;
+    lastY = e.clientY;
+  });
+
+  window.addEventListener('mouseup', e => {
+    if (e.button !== 0) return;
+    dragging = false;
+  });
+
+  window.addEventListener('mousemove', e => {
+    const locked = pointerLockSupported &&
+                   document.pointerLockElement === canvas;
+
+    if (locked) {
+      applyLook(e.movementX || 0, e.movementY || 0);
+      return;
+    }
+
+    if (!dragging) return;
+
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    dragDistance += Math.abs(dx) + Math.abs(dy);
+    applyLook(dx, dy);
+  });
+
+  canvas.addEventListener('click', () => {
+    if (!pointerLockSupported) return;
+    if (document.pointerLockElement === canvas) return;
+    if (dragDistance > 6) return;
+    const p = canvas.requestPointerLock();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  });
+
+  document.addEventListener('pointerlockerror', () => {});
+
+  let touchId = null, touchX = 0, touchY = 0;
+  canvas.addEventListener('touchstart', e => {
+    if (touchId !== null) return;
+    const t = e.changedTouches[0];
+    touchId = t.identifier; touchX = t.clientX; touchY = t.clientY;
+  }, { passive: true });
+  canvas.addEventListener('touchmove', e => {
+    if (touchId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier !== touchId) continue;
+      applyLook(t.clientX - touchX, t.clientY - touchY);
+      touchX = t.clientX; touchY = t.clientY;
+    }
+  }, { passive: true });
+  function endTouch(e) {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === touchId) touchId = null;
+    }
+  }
+  canvas.addEventListener('touchend',    endTouch, { passive: true });
+  canvas.addEventListener('touchcancel', endTouch, { passive: true });
+
+  // ============ AUDIO ============
+  const audioEl = document.getElementById('backroomsMusic');
+  let audioUnlocked = false;
+  function unlockAudio() {
+    initHum();
+    if (audioUnlocked || !audioEl) return;
+    audioUnlocked = true;
+    const p = audioEl.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  }
+  window.addEventListener('pointerdown', unlockAudio);
+  window.addEventListener('keydown',     unlockAudio);
+  window.addEventListener('touchstart',  unlockAudio, { passive: true });
+  if (audioEl) {
+    const p = audioEl.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  }
+
+  // ============ ENTITY WHISPER AUDIO ============
+  const whisperEl = document.getElementById('ghostWhisper');
+  const WHISPER = {
+    NEAR_DIST:   48,
+    FAR_VOL:     0.0,
+    MAX_VOL:     0.85,
+    MIN_GAP:     2.5,
+    MAX_GAP:     8.5,
+    UNLOCK_VOL:  0.001
+  };
+
+  const whisperState = {
+    nextPlayAt: performance.now() / 1000 + 2.0,
+    playing:    false,
+    baseVol:    0.0,
+    lastDistance: Infinity
+  };
+
+  if (whisperEl) {
+    whisperEl.volume = 0.0;
+    whisperEl.addEventListener('error', () => {
+      console.warn('ghostWhisper audio failed to load:', whisperEl.src);
+    });
+  }
+
+  function playWhisperBurst(nowSec) {
+    if (!whisperEl) return;
+    try {
+      const dur = isFinite(whisperEl.duration) && whisperEl.duration > 0
+        ? whisperEl.duration
+        : 4.0;
+      whisperEl.currentTime = Math.random() * Math.max(0.0, dur - 0.6);
+      whisperEl.playbackRate = 0.82 + Math.random() * 0.36;
+    } catch (e) { /* ignore */ }
+
+    const p = whisperEl.play();
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+    whisperState.playing = true;
+    whisperState.nextPlayAt =
+      nowSec + WHISPER.MIN_GAP + Math.random() * (WHISPER.MAX_GAP - WHISPER.MIN_GAP);
+  }
+
+  function updateWhisper(dt, nowSec) {
+    if (!whisperEl) return;
+
+    const active = entity.houseIdx >= 0 && entity.p > 0.05;
+    let dist = Infinity;
+    if (active) {
+      const dx = entity.world[0] - player.pos[0];
+      const dy = entity.world[1] - player.pos[1];
+      const dz = entity.world[2] - player.pos[2];
+      dist = Math.hypot(dx, dy, dz);
+    }
+    whisperState.lastDistance = dist;
+
+    const inRange = dist < WHISPER.NEAR_DIST;
+
+    if (!inRange) {
+      if (whisperState.playing) {
+        const v = whisperEl.volume;
+        if (v > 0.01) {
+          whisperEl.volume = Math.max(0, v - dt * 1.5);
+        } else {
+          whisperEl.volume = 0;
+          try { whisperEl.pause(); } catch (e) {}
+          whisperState.playing = false;
+        }
+      }
+      if (nowSec >= whisperState.nextPlayAt) {
+        whisperState.nextPlayAt =
+          nowSec + WHISPER.MIN_GAP + Math.random() * (WHISPER.MAX_GAP - WHISPER.MIN_GAP);
+      }
+      return;
+    }
+
+    const t = 1.0 - dist / WHISPER.NEAR_DIST;
+    const targetVol = WHISPER.FAR_VOL + t * (WHISPER.MAX_VOL - WHISPER.FAR_VOL);
+    whisperState.baseVol = targetVol;
+
+    if (nowSec >= whisperState.nextPlayAt) {
+      playWhisperBurst(nowSec);
+    }
+
+    if (whisperState.playing) {
+      const v = whisperEl.volume;
+      whisperEl.volume = v + (targetVol - v) * Math.min(1, dt * 3.0);
+    }
+  }
+
+  function stopWhisper() {
+    if (!whisperEl) return;
+    try { whisperEl.pause(); } catch (e) {}
+    whisperEl.volume = 0;
+    whisperState.playing = false;
+  }
+    // ============ GLITCH STATE ============
+  const glitch = {
+    level:    0.0,   // 0..1, overall visual chaos
+    warp:     0.35,  // tape-warp amount
+    dread:    0.0,   // 0..1, rises when the entity is close
+    nextBurst: 3.0,
+    burstDur:  0.0
+  };
+
+  function updateGlitch(dt) {
+    // schedule the next hard glitch burst
+    glitch.nextBurst -= dt;
+    if (glitch.nextBurst <= 0) {
+      glitch.nextBurst = 2.5 + Math.random() * 9.0;
+      glitch.burstDur  = 0.15 + Math.random() * 0.9;
+    }
+
+    // baseline drift, plus bursts
+    let target = 0.03 + 0.02 * Math.sin(performance.now() * 0.0004);
+    if (glitch.burstDur > 0) {
+      glitch.burstDur -= dt;
+      target = 0.55 + Math.random() * 0.55;
+    }
+
+    // dread ramps in when the entity is within ~60m
+    const d = whisperState.lastDistance;
+    let dread = 0;
+    if (isFinite(d)) dread = Math.max(0, 1 - d / 60);
+    glitch.dread += (dread - glitch.dread) * Math.min(1, dt * 2.0);
+
+    target = Math.max(target, glitch.dread * 0.85);
+    glitch.level += (target - glitch.level) * Math.min(1, dt * 6.0);
+    glitch.warp  += ((0.35 + glitch.dread * 1.2) - glitch.warp) * Math.min(1, dt * 1.5);
+  }
+
+  // ============ FLUORESCENT HUM ============
+  let humCtx = null, humGain = null;
+  let humOsc1 = null, humOsc2 = null, humNoise = null;
+  let humStarted = false;
+  let humTarget  = 0.055;
+
+  function initHum() {
+    if (humStarted) return;
+    humStarted = true;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      humCtx  = new AC();
+      humGain = humCtx.createGain();
+      humGain.gain.value = 0.0;
+      humGain.connect(humCtx.destination);
+
+      // 60Hz mains-ish saw
+      humOsc1 = humCtx.createOscillator();
+      humOsc1.type = 'sawtooth';
+      humOsc1.frequency.value = 60;
+      const g1 = humCtx.createGain();
+      g1.gain.value = 0.55;
+      humOsc1.connect(g1).connect(humGain);
+
+      // thin ballast whine
+      humOsc2 = humCtx.createOscillator();
+      humOsc2.type = 'square';
+      humOsc2.frequency.value = 118;
+      const g2 = humCtx.createGain();
+      g2.gain.value = 0.035;
+      humOsc2.connect(g2).connect(humGain);
+
+      // filtered room tone
+      const len = humCtx.sampleRate * 2;
+      const buf = humCtx.createBuffer(1, len, humCtx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * 0.15;
+      humNoise = humCtx.createBufferSource();
+      humNoise.buffer = buf;
+      humNoise.loop = true;
+      const lp = humCtx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 420;
+      const g3 = humCtx.createGain();
+      g3.gain.value = 0.55;
+      humNoise.connect(lp).connect(g3).connect(humGain);
+
+      humOsc1.start();
+      humOsc2.start();
+      humNoise.start();
+    } catch (e) {
+      console.warn('Hum init failed', e);
+    }
+  }
+
+  function updateHum(dt) {
+    if (!humCtx || !humGain) return;
+    const base   = 0.055;
+    const target = base + glitch.dread * 0.18 + glitch.level * 0.04;
+    humTarget += (target - humTarget) * Math.min(1, dt * 1.5);
+
+    const now   = performance.now();
+    const flick = 0.92 + 0.08 * Math.sin(now * 0.011)
+                       + 0.03 * Math.sin(now * 0.037);
+    humGain.gain.value = humTarget * flick;
+
+    if (humCtx.state === 'suspended') humCtx.resume().catch(() => {});
+  }
+
+  // ============ FPS ============
+  const infoEl = document.getElementById('info');
+  let frames = 0, fpsTimer = performance.now();
+
+  // ============ PALETTE ============
+  // everything is the same colour as a dying fluorescent tube
+  const SUN_COLOR     = [1.00, 0.90, 0.58];
+  const SKY_COLOR     = [0.34, 0.29, 0.11];
+  const HORIZON_COLOR = [0.74, 0.66, 0.31];
+  const GROUND_COLOR  = [0.18, 0.15, 0.06];
+
+  const terrainVAO = gl.createVertexArray();
+
+  // ============ MAIN LOOP ============
+  let lastTime = performance.now();
+  const startTime = performance.now();
+  const WALK_SPEED   = 28;
+  const SPRINT_SPEED = 90;
+
+  function frame(now) {
+    requestAnimationFrame(frame);
+    const dt = Math.min((now - lastTime) / 1000, 0.1);
+    lastTime = now;
+    const time = (now - startTime) / 1000;
+
+    const sprint = !!(keys['ShiftLeft'] || keys['ShiftRight']);
+    const speed  = sprint ? SPRINT_SPEED : WALK_SPEED;
+
+    let f = 0, r = 0;
+    if (keys['KeyW'] || keys['ArrowUp'])    f += 1;
+    if (keys['KeyS'] || keys['ArrowDown'])  f -= 1;
+    if (keys['KeyD'] || keys['ArrowRight']) r += 1;
+    if (keys['KeyA'] || keys['ArrowLeft'])  r -= 1;
+
+    if (f !== 0 || r !== 0) {
+      const inv = 1 / Math.hypot(f, r);
+      f *= inv; r *= inv;
+
+      const sy = Math.sin(player.yaw);
+      const cy = Math.cos(player.yaw);
+      const fwdX =  sy, fwdZ = -cy;
+      const rgtX =  cy, rgtZ =  sy;
+
+      player.target[0] += (fwdX * f + rgtX * r) * speed * dt;
+      player.target[2] += (fwdZ * f + rgtZ * r) * speed * dt;
+    }
+
+    const groundY = terrainHeightJS(player.target[0], player.target[2]) + player.eye;
+    player.target[1] += (groundY - player.target[1]) * Math.min(1, dt * 12);
+
+    player.pos[0] = player.target[0];
+    player.pos[2] = player.target[2];
+    player.pos[1] = player.target[1];
+
+    const cp = Math.cos(player.pitch);
+    const fwdX = player.pos[0] + Math.sin(player.yaw) * cp;
+    const fwdY = player.pos[1] + Math.sin(player.pitch);
+    const fwdZ = player.pos[2] - Math.cos(player.yaw) * cp;
+    mat4.lookAt(viewMatrix, player.pos, [fwdX, fwdY, fwdZ], [0, 1, 0]);
+
+    // ---- the body you are wearing breathes and never quite settles
+    const moving  = (f !== 0 || r !== 0) ? 1.0 : 0.0;
+    const bobY    = Math.sin(time * 1.85) * 0.050 + Math.sin(time * 0.71) * 0.030;
+    const bobX    = Math.sin(time * 1.13 + 1.7) * 0.045;
+    const swayR   = Math.sin(time * 0.97) * 0.030;
+    const stepB   = Math.sin(time * 9.4) * 0.030 * moving;
+    const jitterX = (Math.random() - 0.5) * 0.035 * glitch.level;
+
+    mat4.translate(viewMatrix, viewMatrix, [bobX + jitterX, bobY + stepB, 0.0]);
+    mat4.rotateZ(viewMatrix, viewMatrix, swayR + glitch.level * (Math.random() - 0.5) * 0.10);
+
+    mat4.copy(modelViewMatrix, viewMatrix);
+
+    // focal length drifts so nothing ever looks the same twice
+    const fov = Math.PI / 4 * (1.0 + Math.sin(time * 0.41) * 0.030)
+              + glitch.level * Math.sin(time * 24.0) * 0.05;
+    mat4.perspective(projectionMatrix, fov, canvas.width / canvas.height, 0.1, 250000);
+
+    updateLightMatrices();
+    updateEntity(dt);
+
+    // the air hums, the tape warps, the whisper comes and goes
+    updateWhisper(dt, time);
+    updateGlitch(dt);
+    updateHum(dt);
+
+    mat4.multiply(viewProj, projectionMatrix, viewMatrix);
+    extractFrustum(viewProj);
+    gatherHouses();
+
+    // ========== SHADOW PASS ==========
+    gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFBO);
+    gl.viewport(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+    gl.clearColor(1, 1, 1, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.disable(gl.CULL_FACE);
+
+    gl.useProgram(shadowProg);
+    gl.uniformMatrix4fv(shadowU.lightViewProj, false, lightViewProj);
+    gl.uniform1f(shadowU.k, TERRAIN.k);
+    gl.uniform1f(shadowU.p, TERRAIN.p);
+    gl.uniform1f(shadowU.m, TERRAIN.m);
+    gl.uniform1i(shadowU.seed, TERRAIN.seed);
+    gl.uniform2f(shadowU.cameraPos, player.pos[0], player.pos[2]);
+    gl.uniform1f(shadowU.cellSize, TERRAIN.cellSize);
+    gl.uniform1i(shadowU.gridSize, TERRAIN.gridSize);
+    gl.bindVertexArray(terrainVAO);
+    gl.drawArrays(gl.TRIANGLES, 0, VERTEX_COUNT);
+
+    drawHousesShadow();
+
+    // ========== SKY + MAIN PASS ==========
+    gl.bindFramebuffer(gl.FRAMEBUFFER, msaaSamples > 0 ? msaaFBO : sceneFBO);
+    gl.viewport(0, 0, sceneW, sceneH);
+    gl.clearColor(HORIZON_COLOR[0], HORIZON_COLOR[1], HORIZON_COLOR[2], 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    mat4.invert(invViewProj, viewProj);
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(false);
+    gl.useProgram(skyProg);
+    gl.uniformMatrix4fv(skyU.invViewProj, false, invViewProj);
+    gl.uniform3fv(skyU.cameraWorld, player.pos);
+    gl.uniform3fv(skyU.sunDir, sunDir);
+    gl.uniform3fv(skyU.sunColor, SUN_COLOR);
+    gl.uniform3fv(skyU.skyColor, SKY_COLOR);
+    gl.uniform3fv(skyU.horizonColor, HORIZON_COLOR);
+    gl.uniform1f(skyU.time, time);
+    gl.bindVertexArray(terrainVAO);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.depthMask(true);
+    gl.enable(gl.DEPTH_TEST);
+
+    gl.disable(gl.CULL_FACE);
+    gl.useProgram(mainProg);
+    gl.uniformMatrix4fv(mainU.modelViewMatrix,  false, modelViewMatrix);
+    gl.uniformMatrix4fv(mainU.projectionMatrix, false, projectionMatrix);
+    gl.uniformMatrix4fv(mainU.lightViewProj,    false, lightViewProj);
+    gl.uniform1f(mainU.k, TERRAIN.k);
+    gl.uniform1f(mainU.p, TERRAIN.p);
+    gl.uniform1f(mainU.m, TERRAIN.m);
+    gl.uniform1i(mainU.seed, TERRAIN.seed);
+    gl.uniform2f(mainU.cameraPos, player.pos[0], player.pos[2]);
+    gl.uniform1f(mainU.cellSize, TERRAIN.cellSize);
+    gl.uniform1i(mainU.gridSize, TERRAIN.gridSize);
+    gl.uniform3fv(mainU.sunDir, sunDir);
+    gl.uniform3fv(mainU.sunColor, SUN_COLOR);
+    gl.uniform3fv(mainU.skyColor, SKY_COLOR);
+    gl.uniform3fv(mainU.groundColor, GROUND_COLOR);
+    gl.uniform3fv(mainU.horizonColor, HORIZON_COLOR);
+    gl.uniform3fv(mainU.cameraWorld, player.pos);
+    gl.uniform1f(mainU.shadowRadius, 1.0);
+    gl.uniform1i(mainU.shadowEnabled, 1);
+    gl.uniform1f(mainU.grassBump, 0.004);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, grassTex);
+    gl.uniform1i(mainU.texture, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, shadowTex);
+    gl.uniform1i(mainU.shadowMap, 1);
+
+    gl.bindVertexArray(terrainVAO);
+    gl.drawArrays(gl.TRIANGLES, 0, VERTEX_COUNT);
+
+    drawHousesMain();
+    drawEntity();
+
+    if (msaaSamples > 0) {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, msaaFBO);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, sceneFBO);
+      gl.blitFramebuffer(0, 0, sceneW, sceneH, 0, 0, sceneW, sceneH,
+                         gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    }
+
+    // ========== CRT POST PASS ==========
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.CULL_FACE);
+    gl.depthMask(false);
+
+    gl.useProgram(postProg);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, sceneColorTex);
+    gl.uniform1i(postU.scene, 0);
+
+    gl.uniform2f(postU.resolution, canvas.width, canvas.height);
+    gl.uniform1f(postU.time, time);
+    gl.uniform1f(postU.curvature,  CRT.curvature);
+    gl.uniform1f(postU.blur,       Math.min(1.5 * currentDpr, CRT.blur));
+    gl.uniform1f(postU.scanline,   CRT.scanline);
+    gl.uniform1f(postU.aberration, CRT.aberration);
+    gl.uniform1f(postU.noise,      CRT.noise);
+    gl.uniform1f(postU.vignette,   CRT.vignette);
+    gl.uniform1f(postU.flicker,    CRT.flicker);
+    gl.uniform1f(postU.mask,       CRT.mask);
+    gl.uniform1f(postU.glitch,     glitch.level);
+    gl.uniform1f(postU.warp,       glitch.warp);
+    gl.uniform1f(postU.dread,      glitch.dread);
+
+    gl.bindVertexArray(terrainVAO);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    gl.depthMask(true);
+    gl.enable(gl.DEPTH_TEST);
+
+    frames++;
+    if (now - fpsTimer >= 500) {
+      const fps = (frames * 1000) / (now - fpsTimer);
+      const wd = whisperState.lastDistance;
+      const wdStr = isFinite(wd) ? wd.toFixed(1) : '--';
+      infoEl.textContent =
+        'FPS: ' + fps.toFixed(1) + '   Houses: ' + houseInstances.length +
+        '  Forms: ' + entityForms.length + '   GLITCH: ' + glitch.level.toFixed(2) + '\n' +
+        'WASD / Arrows: move   Shift: sprint\n' +
+        'Click: mouse-look (Esc to release)   Drag: look\n' +
+        'R: reset view   Entity dist: ' + wdStr;
+      frames = 0;
+      fpsTimer = now;
+    }
+  }
+
+  window.addEventListener('keydown', e => {
+    if (e.code !== 'KeyR') return;
+    player.yaw = 0;
+    player.pitch = -0.05;
+    player.target[0] = 0; player.target[2] = 78;
+    player.target[1] = terrainHeightJS(0, 78) + player.eye;
+    player.pos[0] = player.target[0];
+    player.pos[1] = player.target[1];
+    player.pos[2] = player.target[2];
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopWhisper();
+  });
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
